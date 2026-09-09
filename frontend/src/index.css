@@ -1,0 +1,136 @@
+:root,
+:root[data-theme="light"] {
+  --bg: #f5f3ee;
+  --surface: #ffffff;
+  --ink: #1b2a28;
+  --ink-soft: #5b6b67;
+  --border: #e4e0d6;
+  --teal: #0f6e5c;
+  --teal-dark: #0a4f42;
+  --teal-soft: #e3f1ec;
+  --gold: #b8873a;
+  --gold-soft: #f7eedd;
+  --brick: #a6432e;
+  --brick-soft: #f7e6e1;
+  /* dedicated color for solid, white-text buttons/badges — kept separate
+     from --teal because in dark mode --teal turns bright (for icons/text
+     on dark surfaces) and would no longer contrast with white text */
+  --accent-solid: #0f6e5c;
+  --brick-solid: #a6432e;
+  --shadow: 0 1px 2px rgba(27, 42, 40, 0.04);
+  --overlay: rgba(27, 42, 40, 0.35);
+}
+
+:root[data-theme="dark"] {
+  --bg: #10201d;
+  --surface: #172b27;
+  --ink: #eaf3f0;
+  --ink-soft: #93aca6;
+  --border: #26443e;
+  --teal: #3ddbb4;
+  --teal-dark: #2dbd98;
+  --teal-soft: #15302b;
+  --gold: #e3b567;
+  --gold-soft: #3a2f18;
+  --brick: #e2836a;
+  --brick-soft: #3d251d;
+  --accent-solid: #13634f;
+  --brick-solid: #a6432e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --overlay: rgba(0, 0, 0, 0.55);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  direction: rtl;
+  font-family: "Vazirmatn", Tahoma, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+button {
+  font-family: inherit;
+}
+
+table {
+  font-family: inherit;
+}
+
+input,
+select,
+textarea {
+  color-scheme: light dark;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+
+/* Minimal hand-written styling for react-multi-date-picker's calendar
+   popup, replacing its bundled stylesheet (which we intentionally don't
+   import — depending on a deep file path inside a third-party package's
+   dist folder proved fragile across version upgrades). These class names
+   (rmdp-*) are the library's own, stable across its v4/v5/v6 releases. If
+   a class name ever changes, these rules simply stop matching — CSS
+   failing silently like this is much safer than a hard build crash. */
+.rmdp-wrapper {
+  font-family: "Vazirmatn", Tahoma, sans-serif;
+  direction: rtl;
+}
+.rmdp-calendar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  /* color is inherited by every descendant unless a more specific rule
+     overrides it — this is the safety net so no text inside the popup
+     (day numbers, month/year labels, anything the library renders that we
+     didn't explicitly style) is ever left at the browser's default black,
+     which is unreadable against a dark surface. */
+  color: var(--ink);
+}
+.rmdp-header, .rmdp-week-day {
+  color: var(--ink);
+}
+.rmdp-arrow {
+  border-color: var(--ink-soft);
+}
+.rmdp-arrow-container:hover {
+  background: var(--teal-soft);
+}
+.rmdp-day span {
+  border-radius: 8px;
+}
+.rmdp-day:not(.rmdp-disabled):not(.rmdp-day-hidden) span:hover {
+  background-color: var(--teal-soft);
+  color: var(--teal-dark);
+}
+.rmdp-day.rmdp-selected span:not(.highlight) {
+  background-color: var(--accent-solid);
+  box-shadow: none;
+}
+.rmdp-day.rmdp-today span {
+  border: 1px solid var(--teal);
+  background: transparent;
+  color: var(--ink);
+}
+.rmdp-input {
+  width: 100%;
+}
