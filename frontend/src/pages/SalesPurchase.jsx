@@ -15,6 +15,8 @@ const inputStyle = {
   fontFamily: "inherit",
   background: "var(--bg)",
   color: "var(--ink)",
+  width: "100%",
+  minWidth: 0,
 };
 
 const emptyHeader = { type: "sale", party: "", invoice_date: "", bank_account_id: "", description: "" };
@@ -144,9 +146,93 @@ function ItemRow({ row, invoiceType, formatPreferredCurrency, onChange, onRemove
   );
 }
 
+function QuickAddCategoryModal({ onClose, onCreated }) {
+  const [groups, setGroups] = useState([]);
+  const [mode, setMode] = useState("existing"); // "existing" | "new"
+  const [groupId, setGroupId] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [categoryName, setCategoryName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { api.inventoryTree(null).then(setGroups); }, []);
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      let parentId = groupId;
+      if (mode === "new") {
+        const group = await api.inventoryCreateGroup({ name: newGroupName });
+        parentId = group.id;
+      }
+      if (!parentId) throw new Error("انتخاب یا تعریف گروه اصلی الزامی است.");
+      const category = await api.inventoryCreateCategory({ parent_id: parentId, name: categoryName });
+      onCreated(category);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "var(--overlay)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface)", borderRadius: 16, padding: 22, width: 360 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h3 style={{ fontSize: 14.5, fontWeight: 700, margin: 0 }}>دسته‌بندی جدید</h3>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer" }}>
+            <X size={17} color="var(--ink-soft)" />
+          </button>
+        </div>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+            <button type="button" onClick={() => setMode("existing")} style={{ flex: 1, border: "none", padding: "7px 0", fontSize: 12, cursor: "pointer", background: mode === "existing" ? "var(--accent-solid)" : "transparent", color: mode === "existing" ? "#fff" : "var(--ink-soft)" }}>
+              گروه موجود
+            </button>
+            <button type="button" onClick={() => setMode("new")} style={{ flex: 1, border: "none", padding: "7px 0", fontSize: 12, cursor: "pointer", background: mode === "new" ? "var(--accent-solid)" : "transparent", color: mode === "new" ? "#fff" : "var(--ink-soft)" }}>
+              گروه جدید
+            </button>
+          </div>
+
+          {mode === "existing" ? (
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+              گروه اصلی
+              <select required value={groupId} onChange={(e) => setGroupId(e.target.value)} style={inputStyle}>
+                <option value="" disabled>انتخاب کنید</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+              نام گروه اصلی جدید
+              <input required value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} style={inputStyle} />
+            </label>
+          )}
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+            نام دسته‌بندی (زیرگروه)
+            <input required value={categoryName} onChange={(e) => setCategoryName(e.target.value)} style={inputStyle} />
+          </label>
+
+          {error && <div style={{ color: "var(--brick)", fontSize: 12 }}>{error}</div>}
+
+          <button type="submit" disabled={saving} style={{ background: "var(--accent-solid)", color: "#fff", border: "none", borderRadius: 9, padding: "10px 0", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+            {saving ? "در حال ذخیره..." : "افزودن و انتخاب"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function QuickAddItemModal({ prefillName, onClose, onCreated }) {
   const [categories, setCategories] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [values, setValues] = useState({ parent_id: "", name: prefillName || "", unit: "", warehouse_id: "", min_qty: 0, qty_on_hand: 0 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -158,6 +244,14 @@ function QuickAddItemModal({ prefillName, onClose, onCreated }) {
       if (rows.length) setValues((v) => ({ ...v, warehouse_id: rows[0].id }));
     });
   }, []);
+
+  function handleCategoryCreated(category) {
+    api.inventoryCategories().then((cats) => {
+      setCategories(cats);
+      setValues((v) => ({ ...v, parent_id: category.id }));
+    });
+    setCategoryModalOpen(false);
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -174,7 +268,7 @@ function QuickAddItemModal({ prefillName, onClose, onCreated }) {
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "var(--overlay)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
+    <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "var(--overlay)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface)", borderRadius: 16, padding: 22, width: 380 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h3 style={{ fontSize: 14.5, fontWeight: 700, margin: 0 }}>تعریف کالای جدید در انبار</h3>
@@ -185,12 +279,22 @@ function QuickAddItemModal({ prefillName, onClose, onCreated }) {
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
             دسته‌بندی (زیرگروه)
-            <select required value={values.parent_id} onChange={(e) => setValues((v) => ({ ...v, parent_id: e.target.value }))} style={inputStyle}>
-              <option value="" disabled>انتخاب کنید</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.parent_name} › {c.name}</option>
-              ))}
-            </select>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select required value={values.parent_id} onChange={(e) => setValues((v) => ({ ...v, parent_id: e.target.value }))} style={inputStyle}>
+                <option value="" disabled>انتخاب کنید</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.parent_name} › {c.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setCategoryModalOpen(true)}
+                title="دسته‌بندی جدید"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border)", background: "var(--bg)", borderRadius: 8, padding: "0 10px", cursor: "pointer", flexShrink: 0 }}
+              >
+                <Plus size={15} color="var(--teal)" />
+              </button>
+            </div>
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
             نام کالا
@@ -226,6 +330,9 @@ function QuickAddItemModal({ prefillName, onClose, onCreated }) {
           </button>
         </form>
       </div>
+      {categoryModalOpen && (
+        <QuickAddCategoryModal onClose={() => setCategoryModalOpen(false)} onCreated={handleCategoryCreated} />
+      )}
     </div>
   );
 }

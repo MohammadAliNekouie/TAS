@@ -60,7 +60,7 @@ const quickAccessGroups = [
   },
 ];
 
-function KpiCard({ label, value, delta, up, icon }) {
+function KpiCard({ label, value, delta, up, icon, note }) {
   const Icon = iconMap[icon] || TrendingUp;
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 20px" }}>
@@ -71,10 +71,14 @@ function KpiCard({ label, value, delta, up, icon }) {
         </div>
       </div>
       <div style={{ fontSize: 22, fontWeight: 700, margin: "10px 0" }}>{rial(value)}</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, color: up ? "var(--teal)" : "var(--brick)" }}>
-        {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-        <span>{toFa(Math.abs(delta).toFixed(1))}٪ نسبت به دیروز</span>
-      </div>
+      {delta !== null && delta !== undefined ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, color: up ? "var(--teal)" : "var(--brick)" }}>
+          {up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          <span>{toFa(Math.abs(delta).toFixed(1))}٪ نسبت به دیروز</span>
+        </div>
+      ) : note ? (
+        <div style={{ fontSize: 11, color: "var(--gold)" }}>{note}</div>
+      ) : null}
     </div>
   );
 }

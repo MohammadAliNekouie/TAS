@@ -10,6 +10,8 @@ const inputStyle = {
   fontFamily: "inherit",
   background: "var(--bg)",
   color: "var(--ink)",
+  width: "100%",
+  minWidth: 0,
 };
 
 const typeLabel = { customer: "مشتری", supplier: "تامین‌کننده", both: "مشتری/تامین‌کننده" };
@@ -34,7 +36,7 @@ function QuickAddPartyModal({ prefillName, onClose, onCreated }) {
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "var(--overlay)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
+    <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "var(--overlay)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface)", borderRadius: 16, padding: 22, width: 360 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <h3 style={{ fontSize: 14.5, fontWeight: 700, margin: 0 }}>تعریف طرف حساب جدید</h3>

@@ -41,7 +41,7 @@ npm run install:all   # installs backend and frontend dependencies
 npm run dev            # runs backend on :4000 and frontend on :5173 together
 ```
 
-Open http://localhost:5173 in your browser. The database is created automatically at `backend/data/accounting.db` and seeded with sample data on first run.
+Open http://localhost:5173 on this machine, or `http://<your-server-ip>:5173` from another device on the same local network. The database is created automatically at `backend/data/accounting.db` and seeded with sample data on first run.
 
 ## Run as a single server (production-style, for local server or VPS)
 
@@ -128,7 +128,7 @@ npm run dev
 Run it directly like this (not through the root `npm run dev`, which interleaves backend/frontend logs and can bury the actual error). You should see:
 
 ```
-✅ Accounting backend running on http://localhost:4000
+✅ Accounting backend running on http://0.0.0.0:4000
 ```
 
 If instead it prints an error and exits, the two most common causes, in order of likelihood:
@@ -261,3 +261,43 @@ Three new modules, replacing the old placeholder "مدیریت تولید" (stil
 - **کالا در گردش** — free-form stock in/out for anything that doesn't fit a formula (partial/staged production, ad-hoc consumption) or for tracking کالای امانی (consignment/loaned goods) leaving or returning. A description is mandatory since there's no structured "reason" otherwise.
 
 None of the three currently post to the General Ledger automatically (only sales/purchase invoices do that today) — extending GL auto-posting to production is a reasonable next step if you want inventory-driven manufacturing costs to flow into your financial statements automatically.
+
+## Fixed: dashboard showing stale data after wiping financial data
+
+This turned out to be two separate real bugs, not a caching issue:
+
+1. **The dashboard's KPI cards, sales chart, and "recent events" feed were mockup placeholders that never got wired to real data.** They read from three static tables (`kpis`, `sales_daily`, `events`) that were seeded once, very early in this project, with fake demo numbers — and nothing in the codebase ever updated them afterward, wipe or no wipe. These three widgets now compute live from real data instead:
+   - KPIs: today's real sales (from `sales_purchase_invoices`), receivables/payables (from the actual GL balance of whichever accounts you've mapped in اتصال حسابداری), and real cash+bank total.
+   - Sales chart: real daily sales sums for the selected range, zero-filled so the timeline stays continuous even on days with no sales.
+   - Recent events: a live merge of your most recent invoices, cheques, vouchers, receipts/payments, and production runs, sorted by actual creation time.
+   The three now-unused tables were removed from the schema.
+
+2. **"پاک‌سازی اطلاعات مالی" never actually cleared اسناد حسابداری, کدینگ حسابداری (سطح ۲/۳), or the production system.** Its table list was written before journal vouchers, chart of accounts, and manufacturing existed, and was never updated as those got built — so Trial Balance / Balance Sheet / Income Statement (which all read from real ledger data) would keep showing old numbers even after a "wipe." Fixed: the wipe now also clears journal vouchers/lines, level-2/3 chart-of-accounts entries (level 1 stays, since it's a fixed classification), and the full production history (formulas, runs, stock adjustments). Company info, bank accounts, warehouses, اتصال حسابداری, and users are still preserved, as intended.
+
+Also, both **wipe** and **restore-from-backup** now automatically reload the page a moment after finishing, instead of leaving you to notice stale data and manually refresh — this directly addresses "doesn't update automatically."
+
+If you're upgrading from an earlier copy: delete `backend/data/accounting.db` before running, since the schema changed again (new `created_at` columns for a real activity feed, removed the three placeholder tables).
+
+## Fixed: date picker not closing, category creation missing, layout overflow
+
+Three real bugs from this round:
+
+1. **Date picker popup wouldn't close after selecting a date.** The library (`react-multi-date-picker`) expects its controlled `value` to be a real `DateObject` (carrying calendar/locale info), but it was being fed a plain string. Without that, the library could never recognize "the value now matches what was just clicked," so it kept the popup open. Fixed by converting the stored string to a proper `DateObject` before passing it back in.
+
+2. **Category selection in "تعریف کالای جدید در فاکتور" couldn't create a new category.** Added a "+" button next to the دسته‌بندی dropdown that opens a small form to create a new subgroup — either under an existing گروه اصلی or a brand-new one — and immediately selects it, without leaving the invoice form.
+
+3. **"حداقل موجودی" (and other fields) overflowing their containers.** A structural CSS bug, not specific to one field: number/text inputs were missing `width`/`min-width` in their shared style object, and flex-row layouts default to a `min-width` that prevents children from shrinking properly — so when two fields shared a row, one could overflow instead of resizing to fit. Fixed everywhere this pattern appears (14 files use the same shared input style).
+
+**Bonus fix found while testing the above**: opening "دسته‌بندی جدید" (or "طرف حساب جدید") from inside another already-open form, then clicking its backdrop to dismiss it, was accidentally closing *both* modals — the click was bubbling up to the parent modal's own backdrop handler. Fixed by stopping that propagation, for both the new category-creation modal and the existing quick-add-item/quick-add-party modals (the latter had this same bug already, just not yet reported).
+
+## Date picker still not closing — real fix this time
+
+The previous fix (feeding it a proper `DateObject` instead of a plain string) was necessary but not sufficient. This turns out to be a widely-reported issue with `react-multi-date-picker` specifically — relying on its automatic close-on-select behavior isn't reliable, and the library's own maintainers document the actual fix: grab a `ref` to the picker and explicitly call `.closeCalendar()` yourself inside `onChange`, rather than trusting it to close on its own. That's what `JalaliDatePicker.jsx` now does. Also memoized the `DateObject` construction so a new one isn't created on every render (which was giving the library a new reference each time even when the date hadn't actually changed).
+
+## Date picker still not closing — the actual root cause, finally
+
+Two earlier attempts (proper `DateObject` value, then explicit `ref.closeCalendar()`) were reasonable but treated symptoms, not the cause. The real issue traces back further: when a dependency-drift crash forced removing `react-multi-date-picker`'s own stylesheet import (see the "Failed to resolve import ... styles.css" fix earlier in this document), it was replaced with a small hand-written CSS block covering *colors only*, for dark-mode readability. But that stylesheet isn't just colors — the library also relies on it for the calendar's positioning/visibility mechanics. Without it, the popup's own "hide yourself when closed" behavior never had the CSS it needed, regardless of what our `onChange`/`ref` logic did on the JS side.
+
+Now that exact dependency versions are pinned (a fix made specifically to prevent the drift that caused the original crash), it's safe to bring the stylesheet import back — loaded *before* our own `index.css`, so our dark-mode color overrides still take precedence for anything they specifically target, while everything else (positioning, open/close mechanics) comes from the library's own, correct CSS.
+
+If you still see this after refreshing, it likely means your installed `node_modules` predates the version pin — run `npm install` in `frontend/` again to be sure you're on the exact pinned version.

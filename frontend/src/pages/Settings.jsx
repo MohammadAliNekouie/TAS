@@ -13,6 +13,8 @@ const inputStyle = {
   fontFamily: "inherit",
   background: "var(--bg)",
   color: "var(--ink)",
+  width: "100%",
+  minWidth: 0,
 };
 
 function CompanyInfoForm() {
@@ -304,8 +306,10 @@ function BackupRestore() {
     setError(null);
     try {
       await api.backup.import(pendingFile);
-      setMessage("اطلاعات با موفقیت بازیابی شد. برای نمایش تغییرات، صفحه را رفرش کنید.");
+      setMessage("اطلاعات با موفقیت بازیابی شد. در حال بارگذاری مجدد...");
       cancelRestore();
+      setTimeout(() => window.location.reload(), 1200);
+      return;
     } catch (err) {
       setError(err.message);
     } finally {
@@ -367,9 +371,10 @@ function DangerZone() {
     setError(null);
     try {
       await api.resetFinancialData();
-      setMessage("همه اطلاعات مالی پاک شد.");
+      setMessage("همه اطلاعات مالی پاک شد. در حال بارگذاری مجدد...");
       setOpen(false);
       setConfirmText("");
+      setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -380,7 +385,7 @@ function DangerZone() {
   return (
     <div>
       <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 14 }}>
-        این عملیات تمام فاکتورها، اسناد حسابداری، دریافت/پرداخت، چک‌ها، تنخواه، اسناد ارزی، دستورهای تولید، طرف‌های حساب، و کالاها/دسته‌بندی‌های انبار را برای همیشه حذف می‌کند. اطلاعات شرکت، حساب‌های بانکی (با موجودی بازنشانی‌شده به مقدار اولیه) و انبارها حذف نمی‌شوند.
+        این عملیات تمام فاکتورها، اسناد حسابداری (شامل اسناد خودکار)، دریافت/پرداخت، چک‌ها، تنخواه، اسناد ارزی، فرمول و فرایند تولید، کالا در گردش، طرف‌های حساب، کالاها/دسته‌بندی‌های انبار، و گروه‌های کل و معین کدینگ حسابداری (سطح ۲ و ۳) را برای همیشه حذف می‌کند. اطلاعات شرکت، حساب‌های بانکی (با موجودی بازنشانی‌شده به مقدار اولیه)، انبارها، اتصال حسابداری، گروه‌های اصلی کدینگ (سطح ۱)، و کاربران حذف نمی‌شوند.
       </p>
       {!open ? (
         <button

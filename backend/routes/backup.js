@@ -12,18 +12,31 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 // is why every column (including primary keys) is preserved verbatim.
 const ALL_TABLES = [
   "warehouses", "company_info", "bank_accounts", "parties", "inventory_nodes",
-  "sales_purchase_invoices", "invoice_items", "journal_entries", "cheques",
-  "receipts_payments", "petty_cash", "fx_transactions", "production_orders",
-  "modayan_submissions", "events", "sales_daily", "kpis",
+  "chart_of_accounts", "accounting_settings",
+  "sales_purchase_invoices", "invoice_items", "journal_vouchers", "journal_voucher_lines",
+  "cheques", "receipts_payments", "petty_cash", "fx_transactions",
+  "production_formulas", "production_formula_components", "production_formula_services",
+  "production_runs", "production_run_components", "production_run_services",
+  "stock_adjustments", "stock_adjustment_items",
+  "modayan_submissions", "modayan_reminders", "users",
+  // legacy tables kept for backward compatibility with older databases —
+  // no longer written to by current code, but preserved on backup/restore
+  // in case they still hold historical rows.
+  "journal_entries", "production_orders",
 ];
 
 // Subset considered "financial data" for the wipe action — deliberately
-// excludes تنظیمات اولیه (company_info, bank_accounts, warehouses), which
-// are setup, not transactional history.
+// excludes تنظیمات اولیه (company_info, bank_accounts, warehouses,
+// accounting_settings, users) and the level-1 (fixed) rows of
+// chart_of_accounts, which are setup, not transactional history.
 const FINANCIAL_TABLES = [
-  "invoice_items", "journal_entries", "sales_purchase_invoices",
-  "receipts_payments", "cheques", "petty_cash", "fx_transactions",
-  "production_orders", "modayan_submissions", "inventory_nodes", "parties",
+  "invoice_items", "journal_voucher_lines", "journal_vouchers", "journal_entries",
+  "sales_purchase_invoices", "receipts_payments", "cheques", "petty_cash",
+  "fx_transactions", "modayan_submissions", "modayan_reminders",
+  "production_run_components", "production_run_services", "production_runs",
+  "production_formula_components", "production_formula_services", "production_formulas",
+  "production_orders", "stock_adjustment_items", "stock_adjustments",
+  "inventory_nodes", "parties",
 ];
 
 // GET /api/backup/export -> full snapshot as a downloadable .xlsx, one sheet
@@ -100,9 +113,12 @@ router.post("/import", upload.single("file"), async (req, res) => {
 });
 
 // DELETE /api/backup/reset-financial-data -> wipes documents/invoices,
-// categories/items, and parties, but keeps تنظیمات اولیه intact. Bank
-// balances reset to initial_balance since the journal entries that moved
-// them away from that are being deleted too.
+// accounting vouchers, production history, categories/items, and parties,
+// but keeps تنظیمات اولیه intact (company info, bank accounts, warehouses,
+// accounting mapping, users) — including the fixed level-1 groups of
+// کدینگ حسابداری, since those are a standard classification, not history.
+// Bank balances reset to initial_balance since the journal vouchers that
+// moved them away from that are being deleted too.
 router.delete("/reset-financial-data", (req, res) => {
   db.pragma("foreign_keys = OFF");
   try {
@@ -110,6 +126,7 @@ router.delete("/reset-financial-data", (req, res) => {
       for (const table of [...FINANCIAL_TABLES].reverse()) {
         db.prepare(`DELETE FROM ${table}`).run();
       }
+      db.prepare("DELETE FROM chart_of_accounts WHERE level IN (2, 3)").run();
       db.prepare("UPDATE bank_accounts SET current_balance = initial_balance").run();
     });
     tx();

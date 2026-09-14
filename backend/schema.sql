@@ -26,14 +26,6 @@ CREATE INDEX IF NOT EXISTS idx_inventory_parent ON inventory_nodes(parent_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory_nodes(code);
 CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory_nodes(name_normalized);
 
-CREATE TABLE IF NOT EXISTS events (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  text       TEXT NOT NULL,
-  tone       TEXT NOT NULL DEFAULT 'teal',
-  icon       TEXT NOT NULL DEFAULT 'receipt',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS cheques (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   type        TEXT NOT NULL DEFAULT 'received' CHECK (type IN ('received', 'issued')),
@@ -42,7 +34,8 @@ CREATE TABLE IF NOT EXISTS cheques (
   due_date    TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'در جریان وصول',
   sayad_id    TEXT,
-  endorsed_to TEXT
+  endorsed_to TEXT,
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- اطلاعات شرکت (تنظیمات اولیه) — تک رکورد با id ثابت ۱
@@ -75,7 +68,8 @@ CREATE TABLE IF NOT EXISTS sales_purchase_invoices (
   invoice_date    TEXT NOT NULL,
   bank_account_id INTEGER REFERENCES bank_accounts(id),
   total_amount    REAL NOT NULL DEFAULT 0,
-  description     TEXT
+  description     TEXT,
+  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ردیف‌های فاکتور — هر ردیف به یک کالای تعریف‌شده در انبار اشاره می‌کند
@@ -134,7 +128,8 @@ CREATE TABLE IF NOT EXISTS receipts_payments (
   method       TEXT NOT NULL,
   payment_date TEXT NOT NULL,
   amount       REAL NOT NULL,
-  description  TEXT
+  description  TEXT,
+  created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- تنخواه‌گردان
@@ -179,23 +174,6 @@ CREATE TABLE IF NOT EXISTS modayan_submissions (
   description      TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sales_daily (
-  id    INTEGER PRIMARY KEY AUTOINCREMENT,
-  label TEXT NOT NULL,
-  value REAL NOT NULL,
-  seq   INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS kpis (
-  id     INTEGER PRIMARY KEY AUTOINCREMENT,
-  key    TEXT NOT NULL UNIQUE,
-  label  TEXT NOT NULL,
-  value  REAL NOT NULL,
-  delta  REAL NOT NULL,
-  up     INTEGER NOT NULL,
-  icon   TEXT NOT NULL
-);
-
 -- کدینگ حسابداری (چارت حساب‌ها) — سه سطح: گروه اصلی (۱ رقم، ثابت طبق
 -- استاندارد)، گروه کل (۲ رقم)، حساب معین/تفصیلی (۴ رقم). فقط سطح ۲ و ۳
 -- قابل افزودن/ویرایش/حذف هستند؛ سطح ۱ طبقه‌بندی ثابت صورت‌های مالی است.
@@ -220,7 +198,8 @@ CREATE TABLE IF NOT EXISTS journal_vouchers (
   -- اسنادی که source_type دارند به‌صورت خودکار از یک فاکتور/رویداد دیگر
   -- ساخته شده‌اند و باید فقط از طریق همان منبع ویرایش/حذف شوند، نه مستقیم.
   source_type  TEXT,
-  source_id    INTEGER
+  source_id    INTEGER,
+  created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ردیف‌های سند — هر ردیف یا بدهکار است یا بستانکار (یکی صفر است)
@@ -288,7 +267,8 @@ CREATE TABLE IF NOT EXISTS production_runs (
   quantity    REAL NOT NULL,
   total_cost  REAL NOT NULL,
   unit_cost   REAL NOT NULL,
-  description TEXT
+  description TEXT,
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS production_run_components (
@@ -313,7 +293,8 @@ CREATE TABLE IF NOT EXISTS stock_adjustments (
   adjustment_date TEXT NOT NULL,
   direction       TEXT NOT NULL CHECK (direction IN ('in', 'out')),
   description     TEXT NOT NULL,
-  is_consignment  INTEGER NOT NULL DEFAULT 0
+  is_consignment  INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS stock_adjustment_items (

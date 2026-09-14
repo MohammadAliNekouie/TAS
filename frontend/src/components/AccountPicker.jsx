@@ -11,6 +11,8 @@ const inputStyle = {
   fontFamily: "inherit",
   background: "var(--bg)",
   color: "var(--ink)",
+  width: "100%",
+  minWidth: 0,
 };
 
 /**

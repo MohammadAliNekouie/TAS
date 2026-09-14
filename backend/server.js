@@ -123,8 +123,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || "خطای غیرمنتظره‌ای در سرور رخ داد." });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`✅ Accounting backend running on http://localhost:${PORT}`);
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Accounting backend running on http://0.0.0.0:${PORT}`);
   exchangeRates.start();
 });
 

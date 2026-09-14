@@ -13,6 +13,8 @@ const inputStyle = {
   fontFamily: "inherit",
   background: "var(--bg)",
   color: "var(--ink)",
+  width: "100%",
+  minWidth: 0,
 };
 
 const emptyLine = () => ({ _key: Math.random().toString(36).slice(2), item: null, quantity: "" });
