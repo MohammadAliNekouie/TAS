@@ -20,3 +20,33 @@
 [2026-09-14T09:01:50.058Z] [error] Exchange rate fetch failed: fetch failed
 [2026-09-14T11:10:59.770Z] [log] ✅ Accounting backend running on http://localhost:4000
 [2026-09-14T11:32:26.830Z] [log] ✅ Accounting backend running on http://0.0.0.0:4000
+[2026-09-14T11:45:15.671Z] [log] ✅ Accounting backend running on http://0.0.0.0:4000
+[2026-09-22T14:09:50.473Z] [log] ✅ Accounting backend running on http://0.0.0.0:4000
+[2026-09-22T14:39:51.988Z] [error] Exchange rate fetch failed: fetch failed
+[2026-09-23T10:33:39.125Z] [log] ✅ Accounting backend running on http://0.0.0.0:4000
+[2026-09-23T13:49:48.467Z] [error] 
+❌ Backend crashed with an uncaught exception:
+ Error: Invalid table name: fx_transactions. Must be one of: cheques, receipts_payments, petty_cash, multi_currency, modayan, bank_accounts, warehouses, parties
+    at createCrudRouter (/home/mizban/Downloads/accounting-app/backend/lib/crud.js:19:11)
+    at Object.<anonymous> (/home/mizban/Downloads/accounting-app/backend/routes/multi-currency.js:2:18)
+    at Module._compile (node:internal/modules/cjs/loader:1529:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1613:10)
+    at Module.load (node:internal/modules/cjs/loader:1275:32)
+    at Module._load (node:internal/modules/cjs/loader:1096:12)
+    at Module.require (node:internal/modules/cjs/loader:1298:19)
+    at require (node:internal/modules/helpers:182:18)
+    at Object.<anonymous> (/home/mizban/Downloads/accounting-app/backend/server.js:45:29)
+    at Module._compile (node:internal/modules/cjs/loader:1529:14)
+[2026-09-23T13:52:28.617Z] [error] 
+❌ Backend failed to start:
+ Error: listen EPERM: operation not permitted 0.0.0.0:4000
+    at Server.setupListenHandle [as _listen2] (node:net:1880:21)
+    at listenInCluster (node:net:1959:12)
+    at doListen (node:net:2133:7)
+    at process.processTicksAndRejections (node:internal/process/task_queues:83:21)
+[2026-09-23T13:52:55.481Z] [log] ✅ Accounting backend running on http://0.0.0.0:4000
+[2026-09-23T13:54:41.339Z] [error] 
+❌ Port 4000 is already in use by another process.
+[2026-09-23T13:54:41.341Z] [error]    Either stop whatever is using it, or run with a different port:
+[2026-09-23T13:54:41.342Z] [error]      PORT=4001 npm run start   (and update frontend/vite.config.js proxy target to match)
+

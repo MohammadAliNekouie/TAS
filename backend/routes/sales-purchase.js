@@ -26,10 +26,13 @@ function getInvoiceWithItems(id) {
   return { ...invoice, items };
 }
 
+// This function MUST be called within a db.transaction() context to ensure
+// atomic updates and prevent race conditions on concurrent invoice posting.
 function applyBankEffect(bankAccountId, type, amount, sign = 1) {
   if (!bankAccountId) return;
   const delta = (type === "sale" ? 1 : -1) * amount * sign;
-  db.prepare("UPDATE bank_accounts SET current_balance = current_balance + ? WHERE id = ?").run(delta, bankAccountId);
+  const result = db.prepare("UPDATE bank_accounts SET current_balance = current_balance + ? WHERE id = ?").run(delta, bankAccountId);
+  if (result.changes === 0) throw new Error("حساب بانکی یافت نشد.");
 }
 
 // Sale: just decrements qty_on_hand (avg_cost is untouched — selling doesn't
@@ -181,6 +184,24 @@ router.post("/", (req, res) => {
   const { type, party, invoice_date, bank_account_id, description = "", items = [] } = req.body;
   if (!type || !party || !invoice_date) return res.status(400).json({ error: "type, party, invoice_date required" });
   if (!items.length) return res.status(400).json({ error: "at least one invoice item is required" });
+  
+  // Validate all quantities and prices are positive numbers
+  for (const item of items) {
+    const qty = Number(item.quantity);
+    const price = Number(item.unit_price);
+    
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
+    }
+    
+    if (isNaN(price) || price < 0) {
+      return res.status(400).json({ error: "قیمت واحد نمی‌تواند منفی باشد." });
+    }
+    
+    if (!item.inventory_item_id) {
+      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
+    }
+  }
 
   try {
     let glWarning = null;
@@ -229,6 +250,24 @@ router.put("/:id", (req, res) => {
   const { type, party, invoice_date, bank_account_id, description = "", items = [] } = req.body;
   if (!type || !party || !invoice_date) return res.status(400).json({ error: "type, party, invoice_date required" });
   if (!items.length) return res.status(400).json({ error: "at least one invoice item is required" });
+  
+  // Validate all quantities and prices are positive numbers
+  for (const item of items) {
+    const qty = Number(item.quantity);
+    const price = Number(item.unit_price);
+    
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
+    }
+    
+    if (isNaN(price) || price < 0) {
+      return res.status(400).json({ error: "قیمت واحد نمی‌تواند منفی باشد." });
+    }
+    
+    if (!item.inventory_item_id) {
+      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
+    }
+  }
 
   const existing = db.prepare("SELECT * FROM sales_purchase_invoices WHERE id = ?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "not found" });

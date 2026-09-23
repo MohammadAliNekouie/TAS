@@ -42,6 +42,28 @@ router.post("/", (req, res) => {
   if (!formula_id || !run_date || !quantity || Number(quantity) <= 0) {
     return res.status(400).json({ error: "فرمول، تاریخ و تعداد تولید الزامی است." });
   }
+  
+  // Validate quantity is a positive number
+  const qty = Number(quantity);
+  if (isNaN(qty) || qty <= 0) {
+    return res.status(400).json({ error: "تعداد تولید باید یک عدد مثبت باشد." });
+  }
+  
+  // Validate component prices are non-negative
+  for (const itemId in component_prices) {
+    const price = Number(component_prices[itemId]);
+    if (isNaN(price) || price < 0) {
+      return res.status(400).json({ error: "قیمت قطعات نمی‌تواند منفی باشد." });
+    }
+  }
+  
+  // Validate service costs are non-negative
+  for (const svc of service_costs) {
+    const cost = Number(svc.cost);
+    if (isNaN(cost) || cost < 0) {
+      return res.status(400).json({ error: "هزینه خدمات نمی‌تواند منفی باشد." });
+    }
+  }
 
   const formula = db.prepare("SELECT * FROM production_formulas WHERE id = ?").get(formula_id);
   if (!formula) return res.status(400).json({ error: "فرمول یافت نشد." });
@@ -110,10 +132,24 @@ router.post("/", (req, res) => {
 router.delete("/:id", (req, res) => {
   const run = db.prepare("SELECT * FROM production_runs WHERE id = ?").get(req.params.id);
   if (!run) return res.status(404).json({ error: "not found" });
+  
   const components = db.prepare("SELECT * FROM production_run_components WHERE run_id = ?").all(req.params.id);
   const formula = run.formula_id ? db.prepare("SELECT * FROM production_formulas WHERE id = ?").get(run.formula_id) : null;
 
-  const tx = db.transaction(() => {
+  try {
+    const tx = db.transaction(() => {
+      // Check if output item has sufficient quantity to deduct before reversing
+      if (formula) {
+        const outputNode = db.prepare("SELECT name, qty_on_hand, unit FROM inventory_nodes WHERE id = ?").get(formula.output_item_id);
+        if (outputNode && run.quantity > outputNode.qty_on_hand) {
+          throw new Error(
+            `نمی‌توان این فرایند تولید را حذف کرد — موجودی کالای تولیدی «${outputNode.name}» کافی نیست ` +
+            `(لازم: ${run.quantity}, موجود: ${outputNode.qty_on_hand} ${outputNode.unit || ""}).`
+          );
+        }
+      }
+      
+      // Reverse the production: add components back, remove output
     for (const c of components) {
       db.prepare("UPDATE inventory_nodes SET qty_on_hand = qty_on_hand + ? WHERE id = ?").run(c.quantity, c.item_id);
     }
@@ -124,7 +160,10 @@ router.delete("/:id", (req, res) => {
   });
 
   tx();
-  res.status(204).end();
+    res.status(204).end();
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 module.exports = router;

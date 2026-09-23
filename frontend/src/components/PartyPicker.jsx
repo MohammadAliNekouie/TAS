@@ -126,7 +126,12 @@ export default function PartyPicker({ value, onChange, placeholder }) {
           ))}
           <button
             type="button"
-            onClick={() => { setQuickAddOpen(true); setOpen(false); }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setQuickAddOpen(true);
+              setOpen(false);
+            }}
             style={{ display: "block", width: "100%", textAlign: "right", padding: "10px 12px", border: "none", background: "var(--teal-soft)", cursor: "pointer", fontSize: 12.5, fontFamily: "inherit", color: "var(--teal-dark)", fontWeight: 700 }}
           >
             + تعریف طرف حساب جدید{query ? `: «${query}»` : ""}

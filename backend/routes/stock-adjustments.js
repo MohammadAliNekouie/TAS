@@ -56,6 +56,17 @@ router.post("/", (req, res) => {
   if (!adjustment_date || !direction) return res.status(400).json({ error: "تاریخ و نوع سند الزامی است." });
   if (!description || !description.trim()) return res.status(400).json({ error: "شرح سند الزامی است." });
   if (!items.length) return res.status(400).json({ error: "حداقل یک ردیف کالا لازم است." });
+  
+  // Validate all quantities are positive
+  for (const item of items) {
+    const qty = Number(item.quantity);
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
+    }
+    if (!item.item_id) {
+      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
+    }
+  }
 
   try {
     const tx = db.transaction(() => {
@@ -87,6 +98,17 @@ router.put("/:id", (req, res) => {
   if (!adjustment_date || !direction) return res.status(400).json({ error: "تاریخ و نوع سند الزامی است." });
   if (!description || !description.trim()) return res.status(400).json({ error: "شرح سند الزامی است." });
   if (!items.length) return res.status(400).json({ error: "حداقل یک ردیف کالا لازم است." });
+  
+  // Validate all quantities are positive
+  for (const item of items) {
+    const qty = Number(item.quantity);
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
+    }
+    if (!item.item_id) {
+      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
+    }
+  }
 
   const existing = db.prepare("SELECT * FROM stock_adjustments WHERE id = ?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "not found" });

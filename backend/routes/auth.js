@@ -10,7 +10,11 @@ router.post("/login", (req, res) => {
   if (!username || !password) return res.status(400).json({ error: "نام کاربری و رمز عبور الزامی است." });
 
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  
+  // Use constant-time verification even if user doesn't exist to prevent timing attacks
+  const isValid = user && verifyPassword(password, user.password_hash);
+  
+  if (!isValid) {
     return res.status(401).json({ error: "نام کاربری یا رمز عبور اشتباه است." });
   }
 

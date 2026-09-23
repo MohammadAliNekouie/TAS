@@ -33,7 +33,11 @@ function validateLines(lines) {
     totalDebit += debit;
     totalCredit += credit;
   }
-  if (Math.abs(totalDebit - totalCredit) > 0.5) {
+  
+  // Use a tighter tolerance (0.01 Rial = 1 cent) for balance validation.
+  // Floating-point arithmetic can introduce tiny errors, but anything beyond
+  // one cent indicates a real accounting imbalance.
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
     return `سند تراز نیست: جمع بدهکار ${totalDebit.toLocaleString("en-US")} و جمع بستانکار ${totalCredit.toLocaleString("en-US")} برابر نیستند.`;
   }
   return null;

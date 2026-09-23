@@ -30,13 +30,19 @@ router.put("/:id", (req, res) => {
   const existing = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "not found" });
 
+  // Check admin count BEFORE starting transaction
   if (existing.role === "admin" && role && role !== "admin") {
     const otherAdmins = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND id != ?").get(req.params.id).c;
     if (otherAdmins === 0) return res.status(400).json({ error: "حداقل یک مدیر سیستم باید باقی بماند." });
   }
 
-  db.prepare("UPDATE users SET full_name = COALESCE(?, full_name), role = COALESCE(?, role) WHERE id = ?")
-    .run(full_name || null, role || null, req.params.id);
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE users SET full_name = COALESCE(?, full_name), role = COALESCE(?, role) WHERE id = ?")
+      .run(full_name || null, role || null, req.params.id);
+  });
+  
+  tx();
+
   if (password) {
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(password), req.params.id);
   }
@@ -47,11 +53,18 @@ router.put("/:id", (req, res) => {
 router.delete("/:id", (req, res) => {
   const existing = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "not found" });
+  
+  // Check admin count BEFORE starting transaction
   if (existing.role === "admin") {
     const otherAdmins = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND id != ?").get(req.params.id).c;
     if (otherAdmins === 0) return res.status(400).json({ error: "حداقل یک مدیر سیستم باید باقی بماند." });
   }
-  db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
+  
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
+  });
+  
+  tx();
   res.status(204).end();
 });
 

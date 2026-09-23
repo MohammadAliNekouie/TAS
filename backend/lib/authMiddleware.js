@@ -18,8 +18,13 @@ function requireAuth(req, res, next) {
 // after requireAuth on every /api route so read-only accounts genuinely
 // can't write, not just "the UI doesn't show the button".
 function blockViewerWrites(req, res, next) {
+  if (!req.user) {
+    // This should never happen if requireAuth is applied first, but defend against misconfiguration
+    return res.status(401).json({ error: "ورود به سیستم الزامی است." });
+  }
+  
   const isMutating = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
-  if (isMutating && req.user?.role === "viewer") {
+  if (isMutating && req.user.role === "viewer") {
     return res.status(403).json({ error: "این حساب کاربری فقط دسترسی مشاهده دارد." });
   }
   next();
