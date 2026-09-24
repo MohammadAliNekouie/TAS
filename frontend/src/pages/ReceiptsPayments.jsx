@@ -27,10 +27,11 @@ export default function ReceiptsPayments() {
           { value: "چک", label: "چک" },
         ] },
         { name: "payment_date", label: "تاریخ", type: "date", required: true },
+        { name: "bank_account_id", label: "حساب بانکی (برای عملیات بانکی)", type: "bank" },
         { name: "amount", label: "مبلغ (ریال)", type: "money", required: true },
         { name: "description", label: "شرح", type: "textarea" },
       ]}
-      emptyValues={{ type: "receipt", party: "", method: "", payment_date: "", amount: "", description: "" }}
+      emptyValues={{ type: "receipt", party: "", method: "", payment_date: "", amount: "", bank_account_id: "", description: "" }}
     />
   );
 }

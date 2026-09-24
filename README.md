@@ -1,6 +1,6 @@
 # تاس — نرم‌افزار حسابداری (Persian RTL Accounting App)
 
-An MVP scaffold: React (RTL, Farsi) frontend + Node/Express + SQLite backend, runnable on a local machine or a VPS.
+نسخه 2.0.0: React (RTL, Farsi) frontend + Node/Express + SQLite backend با چرخه یکپارچه خرید/فروش، خزانه، انبار و حسابداری دوطرفه.
 
 ## What's in every section
 
@@ -18,7 +18,7 @@ The database seeds category-tree inventory data, sample events, and sample chequ
 **خرید و فروش (Sales & Purchase)** is no longer a flat CRUD table — each invoice has a header (type, party, date, bank account) plus multiple line items, and each line item points at a real inventory item:
 
 - While adding invoice lines, typing into the item search box hits the same ID/code/name search built for انبارداری. If the item you need doesn't exist yet, a **"+ تعریف کالای جدید در انبار"** option appears right there in the dropdown — it opens a small form (category, name, unit, warehouse, starting stock), creates the item in the inventory table on the spot, and drops it straight into the invoice row. No need to leave the invoice form.
-- If a bank account is selected on the invoice, saving it **automatically creates an accounting entry** (`journal_entries` table) for the invoice's total amount and adjusts that bank account's `current_balance` — a sale deposits the amount in, a purchase withdraws it out. Editing or deleting an invoice correctly reverses the old entry before applying the new one, so the bank balance never double-counts.
+- فاکتورهای خرید/فروش با تخفیف، مالیات و برگشت ثبت می‌شوند و سند دوطرفهٔ خودکار در `journal_vouchers`/`journal_voucher_lines` ساخته می‌شود. موجودی بانک از رویدادهای مالی دوباره محاسبه می‌شود تا با اسناد دوباره‌شماری نشود.
 
 **تنظیمات اولیه (Settings)**, new page reachable from the bottom of the sidebar:
 - **Company info** — legal name, شناسه ملی, کد اقتصادی, address, phone. Single record, one save button.
@@ -41,7 +41,7 @@ npm run install:all   # installs backend and frontend dependencies
 npm run dev            # runs backend on :4000 and frontend on :5173 together
 ```
 
-Open http://localhost:5173 on this machine, or `http://<your-server-ip>:5173` from another device on the same local network. The database is created automatically at `backend/data/accounting.db` and seeded with sample data on first run.
+Open http://localhost:5173 in your browser. The database is created automatically at `backend/data/accounting.db` and seeded with sample data on first run.
 
 ## Run as a single server (production-style, for local server or VPS)
 
@@ -67,14 +67,14 @@ Put Nginx or Caddy in front of it as a reverse proxy if you want HTTPS on a doma
 
 Delete `backend/data/accounting.db` and restart the server — it will re-seed automatically. Or run `npm run seed` after deletion.
 
-## Next steps to take this from MVP to production
+## Operational deployment notes
 
-1. **Auth** — currently there's no login; add session/JWT auth before exposing this beyond your own machine.
-2. **Jalali dates** — dates are still free-text entry (e.g. typing `۱۴۰۵/۰۶/۱۴`), not a real calendar widget. Add `dayjs` + `jalaliday` (or `date-fns-jalali`) plus a Jalali date-picker component (e.g. adapt `react-multi-date-picker`) for real validation and a calendar UI.
+1. **Auth** — login is enabled; JWT is stored only in an HttpOnly cookie. For public deployment, put the server behind HTTPS and set `NODE_ENV=production`.
+2. **Jalali dates** — the existing date picker remains the UI layer; financial period/date validation is enforced server-side using the stored date strings.
 3. **سامانه مودیان integration** — build as its own backend module with a queued/retry job (don't block invoice creation on a live call to the tax authority API), following the design discussed earlier in this conversation. The current مودیان page is a manual status-tracking CRUD table, not a live integration.
 4. **Self-host the Farsi font** — swap the Google Fonts `<link>` in `frontend/index.html` for a locally hosted Vazirmatn file, since external font CDNs can be unreliable from inside Iran.
 5. **Swap SQLite for PostgreSQL** if you expect concurrent multi-user write load — the schema in `backend/schema.sql` translates directly (see the accounting/inventory schema designed earlier in this conversation, including the `pg_trgm` search index).
-6. **Proper double-entry ledger** — the current `journal_entries` table records one line per invoice (an amount + a direction against one bank account), which is enough to keep bank balances accurate but is a simplification of full double-entry bookkeeping (debit/credit pairs across a real chart of accounts). Worth revisiting once you're ready to produce a true ترازنامه/دفتر کل from this data rather than the current aggregate-based گزارش‌گیری summary.
+6. **Double-entry ledger** — operational accounting now uses `journal_vouchers` and `journal_voucher_lines`; the legacy `journal_entries` table is retained only for backward compatibility.
 
 ## Project structure
 
@@ -128,7 +128,7 @@ npm run dev
 Run it directly like this (not through the root `npm run dev`, which interleaves backend/frontend logs and can bury the actual error). You should see:
 
 ```
-✅ Accounting backend running on http://0.0.0.0:4000
+✅ Accounting backend running on http://localhost:4000
 ```
 
 If instead it prints an error and exits, the two most common causes, in order of likelihood:
@@ -301,3 +301,43 @@ Two earlier attempts (proper `DateObject` value, then explicit `ref.closeCalenda
 Now that exact dependency versions are pinned (a fix made specifically to prevent the drift that caused the original crash), it's safe to bring the stylesheet import back — loaded *before* our own `index.css`, so our dark-mode color overrides still take precedence for anything they specifically target, while everything else (positioning, open/close mechanics) comes from the library's own, correct CSS.
 
 If you still see this after refreshing, it likely means your installed `node_modules` predates the version pin — run `npm install` in `frontend/` again to be sure you're on the exact pinned version.
+
+## نسخه نهایی — 2.0.0
+
+این نسخه شامل سخت‌سازی‌های زیر است:
+
+- محاسبه مجدد موجودی و میانگین موزون بر اساس گردش‌های تاریخی خرید، فروش، تعدیل و تولید.
+- ثبت Inventory Ledger قابل حسابرسی برای هر کالا.
+- جلوگیری از ویرایش مستقیم `qty_on_hand` پس از ایجاد کالا.
+- جلوگیری از حذف کالایی که گردش انبار دارد.
+- اعتبارسنجی دقیق مقدار/قیمت ردیف‌های فاکتور و جلوگیری از مقادیر منفی.
+- تراز اسناد حسابداری با دقت بسیار بالاتر کنترل می‌شود.
+- ثبت Audit Log برای عملیات تغییردهنده API.
+- دوره‌های مالی، جلوگیری از ثبت در دوره بسته و سند اختتامیه.
+- rate limit برای ورود.
+- CORS محدود به originهای مشخص از طریق `CORS_ORIGIN`.
+- JWT فقط در HttpOnly Cookie نگهداری می‌شود و frontend توکن را در localStorage ذخیره نمی‌کند.
+- Migration خودکار برای دیتابیس‌های قدیمی و ایجاد ساختارهای جدید حسابداری.
+
+### اجرای نسخه اصلاح‌شده
+
+```bash
+npm run install:all
+npm run dev
+```
+
+برای deployment عمومی، مقدار `CORS_ORIGIN` را به origin واقعی frontend تنظیم کنید و `NODE_ENV=production` قرار دهید تا cookie با `Secure` ارسال شود.
+
+> توجه: تست کامل browser/e2e و نصب dependencyهای native مانند `better-sqlite3` باید در محیط توسعه مقصد انجام شود؛ محیط ساخت این بسته دسترسی شبکه لازم برای نصب npm را نداشت. syntax تمام فایل‌های JavaScript backend در زمان ساخت با `node --check` بررسی شده است.
+
+
+## Accounting controls in 2.0.0
+
+- سندهای خودکار همهٔ عملیات مالی از طریق `journal_vouchers` و `journal_voucher_lines` ثبت می‌شوند و هر سند باید دقیقاً تراز باشد.
+- فاکتور خرید/فروش از تخفیف، مالیات و برگشت پشتیبانی می‌کند.
+- موجودی از `inventory_ledger` بازسازی می‌شود و بهای تمام‌شده فروش پس از تغییرات تاریخی دوباره محاسبه و در سندهای خودکار فروش اصلاح می‌شود.
+- دریافت/پرداخت، چک، تنخواه، تعدیل و تولید دارای سند حسابداری منبع‌دار هستند.
+- دوره‌های مالی قابل تعریف و بسته‌شدن هستند و ثبت جدید در دوره بسته مسدود می‌شود.
+- Restore ابتدا یک snapshot از دیتابیس ایجاد می‌کند و فایل پشتیبان قبلی را نگه می‌دارد.
+- JWT فقط در Cookie با `HttpOnly` نگهداری می‌شود؛ frontend دیگر توکن را در `localStorage` ذخیره نمی‌کند.
+- برای هر حساب بانکی، در صورت عدم انتخاب حساب کدینگ دستی، یک حساب معین مستقل به‌صورت خودکار ساخته می‌شود.

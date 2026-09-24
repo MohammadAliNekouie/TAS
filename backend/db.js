@@ -15,6 +15,44 @@ try {
 
   const schema = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
   db.exec(schema);
+  // Backward-compatible schema migrations for databases created by older releases.
+  if (!db.prepare("PRAGMA table_info(stock_adjustment_items)").all().some(c => c.name === "unit_cost")) {
+    db.exec("ALTER TABLE stock_adjustment_items ADD COLUMN unit_cost REAL NOT NULL DEFAULT 0");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER REFERENCES users(id),action TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id INTEGER,details TEXT,ip_address TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type,entity_id);
+CREATE TABLE IF NOT EXISTS financial_periods(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,start_date TEXT NOT NULL,end_date TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')));
+CREATE TABLE IF NOT EXISTS inventory_ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER NOT NULL REFERENCES inventory_nodes(id),event_date TEXT NOT NULL,source_type TEXT NOT NULL,source_id INTEGER NOT NULL,quantity_in REAL NOT NULL DEFAULT 0 CHECK(quantity_in>=0),quantity_out REAL NOT NULL DEFAULT 0 CHECK(quantity_out>=0),unit_cost REAL NOT NULL DEFAULT 0 CHECK(unit_cost>=0),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(source_type,source_id,item_id));
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_item_date ON inventory_ledger(item_id,event_date,id);`);
+  // v1.1/v2 migrations: additive columns keep existing installations upgradeable.
+  const addColumn = (table, column, definition) => {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  addColumn('sales_purchase_invoices','invoice_kind',"TEXT NOT NULL DEFAULT 'normal'");
+  addColumn('sales_purchase_invoices','original_invoice_id','INTEGER');
+  addColumn('sales_purchase_invoices','subtotal','REAL NOT NULL DEFAULT 0');
+  addColumn('sales_purchase_invoices','discount_amount','REAL NOT NULL DEFAULT 0');
+  addColumn('sales_purchase_invoices','tax_rate','REAL NOT NULL DEFAULT 0');
+  addColumn('sales_purchase_invoices','tax_amount','REAL NOT NULL DEFAULT 0');
+  addColumn('receipts_payments','bank_account_id','INTEGER');
+  addColumn('receipts_payments','cheque_id','INTEGER');
+  addColumn('cheques','bank_account_id','INTEGER');
+  addColumn('petty_cash','bank_account_id','INTEGER');
+  addColumn('stock_adjustment_items','unit_cost','REAL NOT NULL DEFAULT 0');
+  addColumn('accounting_settings','cash_account_id','INTEGER');
+  addColumn('accounting_settings','petty_cash_account_id','INTEGER');
+  addColumn('accounting_settings','vat_account_id','INTEGER');
+  addColumn('accounting_settings','expense_account_id','INTEGER');
+  addColumn('accounting_settings','other_payable_account_id','INTEGER');
+  addColumn('accounting_settings','cheque_receivable_account_id','INTEGER');
+  addColumn('accounting_settings','cheque_payable_account_id','INTEGER');
+  addColumn('accounting_settings','retained_earnings_account_id','INTEGER');
+  addColumn('accounting_settings','opening_closing_account_id','INTEGER');
+  db.exec(`UPDATE sales_purchase_invoices SET subtotal=total_amount WHERE subtotal=0 AND total_amount>0;
+CREATE TABLE IF NOT EXISTS invoice_links(id INTEGER PRIMARY KEY AUTOINCREMENT,invoice_id INTEGER NOT NULL REFERENCES sales_purchase_invoices(id) ON DELETE CASCADE,linked_invoice_id INTEGER NOT NULL REFERENCES sales_purchase_invoices(id),relation_type TEXT NOT NULL CHECK(relation_type IN ('return_of','amends')),UNIQUE(invoice_id,linked_invoice_id,relation_type));
+CREATE TABLE IF NOT EXISTS closing_entries(id INTEGER PRIMARY KEY AUTOINCREMENT,period_id INTEGER NOT NULL REFERENCES financial_periods(id),voucher_id INTEGER NOT NULL REFERENCES journal_vouchers(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(period_id));
+CREATE INDEX IF NOT EXISTS idx_invoice_links_invoice ON invoice_links(invoice_id);`);
+
 } catch (err) {
   // A failure here is one of two things in practice:
   //  1) SQLITE_READONLY — the db file/folder isn't writable by this user
@@ -116,6 +154,16 @@ function seedChartOfAccounts() {
   console.log(`Seeded chart of accounts: ${COA_LEVEL1.length} groups, ${COA_LEVEL2.length} subgroups, ${COA_LEVEL3.length} accounts.`);
 }
 seedChartOfAccounts();
+
+function ensureOperationalAccounts(){
+  const defaults=[['7307','بهای تمام‌شده کالای فروش‌رفته','73'],['1190','بانک اختصاصی ۱','11']];
+  for(const [code,name,parentCode] of defaults){
+    if(db.prepare('SELECT 1 FROM chart_of_accounts WHERE code=?').get(code)) continue;
+    const parent=db.prepare('SELECT id FROM chart_of_accounts WHERE code=?').get(parentCode);
+    if(parent) db.prepare('INSERT INTO chart_of_accounts(code,level,parent_id,name,name_normalized) VALUES(?,3,?,?,?)').run(code,parent.id,name,normalizePersian(name));
+  }
+}
+ensureOperationalAccounts();
 
 // یک حساب مدیر سیستم پیش‌فرض با رمز تصادفی (نه یک رمز حدس‌زدنی مثل admin)
 // در اولین اجرا ساخته می‌شود و رمز فقط همان یک‌بار در کنسول چاپ می‌شود.

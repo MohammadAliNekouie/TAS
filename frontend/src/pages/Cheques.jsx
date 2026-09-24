@@ -27,14 +27,16 @@ export default function Cheques() {
         { name: "status", label: "وضعیت", type: "select", required: true, options: [
           { value: "در جریان وصول", label: "در جریان وصول" },
           { value: "وصول شده", label: "وصول شده" },
+          { value: "پرداخت شده", label: "پرداخت شده" },
           { value: "برگشتی", label: "برگشتی" },
           { value: "نزد صندوق", label: "نزد صندوق" },
           { value: "خرج شده", label: "خرج شده" },
           { value: "واگذار شده (ظهرنویسی)", label: "واگذار شده (ظهرنویسی)" },
         ] },
         { name: "endorsed_to", label: "واگذار شده به (در صورت ظهرنویسی)", type: "text" },
+        { name: "bank_account_id", label: "حساب بانکی برای وصول/پرداخت", type: "bank" },
       ]}
-      emptyValues={{ type: "received", party: "", amount: "", due_date: "", sayad_id: "", status: "در جریان وصول", endorsed_to: "" }}
+      emptyValues={{ type: "received", party: "", amount: "", due_date: "", sayad_id: "", status: "در جریان وصول", endorsed_to: "", bank_account_id: "" }}
     />
   );
 }

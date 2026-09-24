@@ -434,6 +434,15 @@ function AccountingMapping() {
     { key: "inventory_account_id", label: "حساب موجودی کالا" },
     { key: "ar_account_id", label: "حساب دریافتنی تجاری (پیش‌فرض، فروش نسیه)" },
     { key: "ap_account_id", label: "حساب پرداختنی تجاری (پیش‌فرض، خرید نسیه)" },
+    { key: "cash_account_id", label: "حساب صندوق" },
+    { key: "petty_cash_account_id", label: "حساب تنخواه" },
+    { key: "vat_account_id", label: "حساب مالیات بر ارزش افزوده" },
+    { key: "expense_account_id", label: "حساب هزینه/کسری و اضافی انبار" },
+    { key: "other_payable_account_id", label: "حساب بستانکار خدمات و تعدیلات" },
+    { key: "cheque_receivable_account_id", label: "حساب اسناد دریافتنی" },
+    { key: "cheque_payable_account_id", label: "حساب اسناد پرداختنی" },
+    { key: "retained_earnings_account_id", label: "حساب سود و زیان انباشته" },
+    { key: "opening_closing_account_id", label: "حساب تراز افتتاحیه/اختتامیه" },
   ];
   const [values, setValues] = useState({});
   const [loading, setLoading] = useState(true);
@@ -470,7 +479,7 @@ function AccountingMapping() {
   return (
     <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: 0, maxWidth: 560 }}>
-        با تکمیل این نگاشت، ثبت هر فاکتور خرید/فروش به‌صورت خودکار یک سند حسابداری واقعی (بدهکار/بستانکار) در کدینگ حسابداری ایجاد می‌کند.
+        با تکمیل این نگاشت، ثبت هر فاکتور خرید/فروش، دریافت/پرداخت، چک، تنخواه، تعدیل و تولید به‌صورت خودکار یک سند حسابداری واقعی (بدهکار/بستانکار) در کدینگ حسابداری ایجاد می‌کند.
         بدون تکمیل این بخش، فاکتورها همچنان ثبت می‌شوند اما سندی خودکار ساخته نمی‌شود.
       </p>
       {FIELDS.map((f) => (

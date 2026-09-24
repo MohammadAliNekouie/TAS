@@ -1,6 +1,7 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 const errorLog = require("./lib/errorLog");
 const terminalLog = require("./lib/terminalLog");
 
@@ -62,14 +63,32 @@ const modayanRemindersRoutes = require("./routes/modayan-reminders");
 const productionFormulasRoutes = require("./routes/production-formulas");
 const productionRunsRoutes = require("./routes/production-runs");
 const stockAdjustmentsRoutes = require("./routes/stock-adjustments");
+const financialPeriodsRoutes = require("./routes/financial-periods");
+const auditLogRoutes = require("./routes/audit-log");
 const exchangeRates = require("./lib/exchangeRates");
 const { requireAuth, blockViewerWrites, requireAdmin } = require("./lib/authMiddleware");
+const { rebuildInventory } = require("./lib/inventoryLedger");
+const { recomputeBankBalances } = require("./lib/accounting");
+
+try { rebuildInventory(); recomputeBankBalances(); } catch (e) { console.error("Initial accounting rebuild warning:", e.message); }
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
-app.use(express.json());
+const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173,http://127.0.0.1:5173").split(",").map(s=>s.trim()).filter(Boolean);
+app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error("Origin not allowed")); }, credentials: true }));
+app.use(express.json({ limit: "2mb" }));
+
+// Lightweight in-process login throttling. For multi-instance deployments use a shared store.
+const loginAttempts = new Map();
+app.use("/api/auth/login", (req,res,next) => {
+  const key = `${req.ip}:${String(req.body?.username || "").toLowerCase()}`;
+  const now = Date.now(); const item = loginAttempts.get(key) || { count:0, reset:now+60_000 };
+  if (now > item.reset) { item.count=0; item.reset=now+60_000; }
+  item.count++; loginAttempts.set(key,item);
+  if (item.count > 8) return res.status(429).json({error:"تعداد تلاش‌های ورود بیش از حد مجاز است. یک دقیقه بعد دوباره تلاش کنید."});
+  next();
+});
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRoutes);
@@ -78,6 +97,17 @@ app.use("/api/auth", authRoutes);
 // stops the 'viewer' role from mutating anything, enforced server-side
 // (not just hidden in the UI).
 app.use("/api", requireAuth, blockViewerWrites);
+function auditSafeBody(body){
+  const secretKeys=new Set(['password','password_hash','token','authorization','tas_session']);
+  const clean=(v)=>{if(Array.isArray(v))return v.map(clean);if(v&&typeof v==='object'){const o={};for(const [k,x] of Object.entries(v))o[k]=secretKeys.has(k.toLowerCase())?'[REDACTED]':clean(x);return o;}return v;};
+  return JSON.stringify(clean(body||{})).slice(0,4000);
+}
+app.use("/api", (req,res,next) => {
+  if (["POST","PUT","PATCH","DELETE"].includes(req.method)) {
+    try { require("./db").prepare("INSERT INTO audit_log(user_id,action,entity_type,entity_id,details,ip_address) VALUES(?,?,?,?,?,?)").run(req.user?.id || null, req.method, req.path.split("/")[2] || "api", Number(req.params?.id) || null, auditSafeBody(req.body), req.ip); } catch (_) {}
+  }
+  next();
+});
 
 app.use("/api/users", usersRoutes); // requireAdmin is applied inside this router
 app.use("/api/dashboard", dashboardRoutes);
@@ -104,6 +134,8 @@ app.use("/api/modayan-reminders", modayanRemindersRoutes);
 app.use("/api/production-formulas", productionFormulasRoutes);
 app.use("/api/production-runs", productionRunsRoutes);
 app.use("/api/stock-adjustments", stockAdjustmentsRoutes);
+app.use("/api/financial-periods", financialPeriodsRoutes);
+app.use("/api/audit-log", auditLogRoutes);
 
 // In production, serve the built React app from ../frontend/dist
 const frontendDist = path.join(__dirname, "..", "frontend", "dist");
@@ -123,8 +155,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || "خطای غیرمنتظره‌ای در سرور رخ داد." });
 });
 
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Accounting backend running on http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`✅ Accounting backend running on http://localhost:${PORT}`);
   exchangeRates.start();
 });
 

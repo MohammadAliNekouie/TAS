@@ -1,0 +1,7 @@
+const db = require('../db');
+function columnExists(table, column) { return db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name===column); }
+function migrate() {
+  if (!columnExists('stock_adjustment_items','unit_cost')) db.exec('ALTER TABLE stock_adjustment_items ADD COLUMN unit_cost REAL NOT NULL DEFAULT 0');
+  db.exec(`CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER REFERENCES users(id),action TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id INTEGER,details TEXT,ip_address TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type,entity_id); CREATE TABLE IF NOT EXISTS financial_periods(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,start_date TEXT NOT NULL,end_date TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed'))); CREATE TABLE IF NOT EXISTS inventory_ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER NOT NULL REFERENCES inventory_nodes(id),event_date TEXT NOT NULL,source_type TEXT NOT NULL,source_id INTEGER NOT NULL,quantity_in REAL NOT NULL DEFAULT 0 CHECK(quantity_in>=0),quantity_out REAL NOT NULL DEFAULT 0 CHECK(quantity_out>=0),unit_cost REAL NOT NULL DEFAULT 0 CHECK(unit_cost>=0),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(source_type,source_id,item_id)); CREATE INDEX IF NOT EXISTS idx_inventory_ledger_item_date ON inventory_ledger(item_id,event_date,id);`);
+}
+module.exports={migrate};

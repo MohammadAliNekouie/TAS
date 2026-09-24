@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
-import { crudApi } from "../lib/api.js";
+import { crudApi, api } from "../lib/api.js";
 import { toFa, rial } from "../lib/persian.js";
 import PartyPicker from "./PartyPicker.jsx";
 import RialInput from "./RialInput.jsx";
@@ -21,6 +21,7 @@ export default function CrudModule({ title, description, resource, columns, form
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
+  const [bankAccounts, setBankAccounts] = useState([]);
 
   function load() {
     setLoading(true);
@@ -31,6 +32,7 @@ export default function CrudModule({ title, description, resource, columns, form
   }
 
   useEffect(load, [resource]);
+  useEffect(() => { if (formFields.some(f => f.type === "bank")) api.bankAccounts.list().then(setBankAccounts).catch(() => {}); }, []);
 
   function openAdd() {
     setEditing(null);
@@ -193,6 +195,11 @@ export default function CrudModule({ title, description, resource, columns, form
                       value={values[f.name] ?? ""}
                       onChange={(v) => setValues((vv) => ({ ...vv, [f.name]: v }))}
                     />
+                  ) : f.type === "bank" ? (
+                    <select required={f.required} value={values[f.name] ?? ""} onChange={(e) => setValues(v => ({ ...v, [f.name]: e.target.value || null }))} style={inputStyle}>
+                      <option value="">انتخاب حساب بانکی</option>
+                      {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.name} — {rial(b.current_balance)}</option>)}
+                    </select>
                   ) : f.type === "select" ? (
                     <select
                       required={f.required}

@@ -1,54 +1,6 @@
-const express = require("express");
-const db = require("../db");
-
-const router = express.Router();
-
-router.get("/", (req, res) => {
-  res.json(
-    db
-      .prepare(
-        `SELECT b.*, a.code AS coa_account_code, a.name AS coa_account_name
-         FROM bank_accounts b
-         LEFT JOIN chart_of_accounts a ON a.id = b.coa_account_id
-         ORDER BY b.id DESC`
-      )
-      .all()
-  );
-});
-
-router.post("/", (req, res) => {
-  const { name, bank_name = "", sheba = "", initial_balance = 0, coa_account_id = null } = req.body;
-  if (!name) return res.status(400).json({ error: "name is required" });
-  const info = db
-    .prepare(
-      `INSERT INTO bank_accounts (name, bank_name, sheba, initial_balance, current_balance, coa_account_id)
-       VALUES (@name, @bank_name, @sheba, @initial_balance, @initial_balance, @coa_account_id)`
-    )
-    .run({ name, bank_name, sheba, initial_balance, coa_account_id });
-  res.status(201).json(db.prepare("SELECT * FROM bank_accounts WHERE id = ?").get(info.lastInsertRowid));
-});
-
-// Only identity/mapping fields are editable after creation — current_balance
-// moves only through invoices/journal vouchers, never a direct edit, so the
-// ledger stays consistent with what was actually recorded.
-router.put("/:id", (req, res) => {
-  const { name, bank_name = "", sheba = "", coa_account_id = null } = req.body;
-  if (!name) return res.status(400).json({ error: "name is required" });
-  db.prepare(
-    "UPDATE bank_accounts SET name = @name, bank_name = @bank_name, sheba = @sheba, coa_account_id = @coa_account_id WHERE id = @id"
-  ).run({ name, bank_name, sheba, coa_account_id, id: req.params.id });
-  const row = db.prepare("SELECT * FROM bank_accounts WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: "not found" });
-  res.json(row);
-});
-
-router.delete("/:id", (req, res) => {
-  try {
-    db.prepare("DELETE FROM bank_accounts WHERE id = ?").run(req.params.id);
-    res.status(204).end();
-  } catch (err) {
-    res.status(400).json({ error: "این حساب در فاکتورها یا اسناد استفاده شده و قابل حذف نیست." });
-  }
-});
-
-module.exports = router;
+const express=require('express');const db=require('../db');const {money,recomputeBankBalances}=require('../lib/accounting');const {normalizePersian}=require('../lib/persian');const router=express.Router();
+function ensureBankAccountCOA(name,preferred){if(preferred)return Number(preferred);const parent=db.prepare("SELECT id FROM chart_of_accounts WHERE code='11' AND level=2").get();if(!parent)throw new Error('گروه بانک‌ها در کدینگ یافت نشد.');let code=1190;while(db.prepare('SELECT 1 FROM chart_of_accounts WHERE code=?').get(String(code)))code++;const info=db.prepare("INSERT INTO chart_of_accounts(code,level,parent_id,name,name_normalized) VALUES(?,3,?,?,?)").run(String(code),parent.id,`بانک — ${name}`,normalizePersian(`بانک — ${name}`));return Number(info.lastInsertRowid);}
+router.get('/',(req,res)=>res.json(db.prepare(`SELECT b.*,a.code coa_account_code,a.name coa_account_name FROM bank_accounts b LEFT JOIN chart_of_accounts a ON a.id=b.coa_account_id ORDER BY b.id DESC`).all()));
+router.post('/',(req,res)=>{try{const {name,bank_name='',sheba='',coa_account_id=null}=req.body;const initial=money(req.body.initial_balance||0,'موجودی اولیه');if(!name)throw new Error('نام حساب الزامی است.');const tx=db.transaction(()=>{const coa=ensureBankAccountCOA(name,coa_account_id);const info=db.prepare('INSERT INTO bank_accounts(name,bank_name,sheba,initial_balance,current_balance,coa_account_id) VALUES(?,?,?,?,?,?)').run(name,bank_name,sheba,initial,initial,coa);recomputeBankBalances();return info.lastInsertRowid;});res.status(201).json(db.prepare('SELECT * FROM bank_accounts WHERE id=?').get(tx()));}catch(e){res.status(400).json({error:e.message});}});
+router.put('/:id',(req,res)=>{try{const {name,bank_name='',sheba='',coa_account_id=null}=req.body;if(!name)throw new Error('نام حساب الزامی است.');const row=db.prepare('SELECT * FROM bank_accounts WHERE id=?').get(req.params.id);if(!row)return res.status(404).json({error:'not found'});const coa=ensureBankAccountCOA(name,coa_account_id||row.coa_account_id);db.prepare('UPDATE bank_accounts SET name=?,bank_name=?,sheba=?,coa_account_id=? WHERE id=?').run(name,bank_name,sheba,coa,row.id);res.json(db.prepare('SELECT * FROM bank_accounts WHERE id=?').get(row.id));}catch(e){res.status(400).json({error:e.message});}});
+router.delete('/:id',(req,res)=>{try{const used=db.prepare("SELECT (SELECT COUNT(*) FROM sales_purchase_invoices WHERE bank_account_id=?)+(SELECT COUNT(*) FROM receipts_payments WHERE bank_account_id=?)+(SELECT COUNT(*) FROM cheques WHERE bank_account_id=?) c").get(req.params.id,req.params.id,req.params.id).c;if(used)throw new Error('این حساب بانکی در تراکنش‌ها استفاده شده و قابل حذف نیست.');db.prepare('DELETE FROM bank_accounts WHERE id=?').run(req.params.id);res.status(204).end();}catch(e){res.status(400).json({error:e.message});}});module.exports=router;

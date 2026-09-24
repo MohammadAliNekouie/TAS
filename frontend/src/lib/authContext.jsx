@@ -1,32 +1,24 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext(null);
-const STORAGE_KEY = "tas-auth";
+const STORAGE_KEY = "tas-user";
 
-function loadStored() {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) {
-    return null;
-  }
-}
-
+function loadStored() { return null; }
 // A plain module-level variable (not React state) holding the current
 // token. api.js reads this synchronously on every request. Critically,
 // `persist()` below updates this the instant login/logout happens — not
 // inside a useEffect — so there is no window where a component has already
 // re-rendered as "authenticated" but a fetch still goes out tokenless.
-let currentToken = loadStored()?.token || null;
+let currentToken = null;
 
 function persist(auth) {
-  currentToken = auth?.token || null;
-  if (auth) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-  else window.localStorage.removeItem(STORAGE_KEY);
+  currentToken = null;
+  if (auth?.user) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth.user));
+  else window.sessionStorage.removeItem(STORAGE_KEY);
 }
 
 export function AuthProvider({ children }) {
-  const [auth, setAuthState] = useState(loadStored);
+  const [auth, setAuthState] = useState(() => { try { const u=window.sessionStorage.getItem(STORAGE_KEY); return u ? { user: JSON.parse(u) } : null; } catch (_) { return null; } });
 
   function setAuth(newAuth) {
     persist(newAuth); // synchronous — happens before React re-renders children
@@ -45,14 +37,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   function login(token, user) {
-    setAuth({ token, user });
+    setAuth({ user });
   }
-  function logout() {
+  async function logout() {
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch (_) {}
     setAuth(null);
   }
 
   return (
-    <AuthContext.Provider value={{ token: auth?.token || null, user: auth?.user || null, isAuthenticated: !!auth?.token, login, logout }}>
+    <AuthContext.Provider value={{ token: null, user: auth?.user || null, isAuthenticated: !!auth?.user, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

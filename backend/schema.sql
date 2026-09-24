@@ -30,11 +30,12 @@ CREATE TABLE IF NOT EXISTS cheques (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   type        TEXT NOT NULL DEFAULT 'received' CHECK (type IN ('received', 'issued')),
   party       TEXT NOT NULL,
-  amount      REAL NOT NULL,
+  amount      REAL NOT NULL CHECK (amount > 0),
   due_date    TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'در جریان وصول',
   sayad_id    TEXT,
   endorsed_to TEXT,
+  bank_account_id INTEGER REFERENCES bank_accounts(id),
   created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -67,7 +68,13 @@ CREATE TABLE IF NOT EXISTS sales_purchase_invoices (
   party           TEXT NOT NULL,
   invoice_date    TEXT NOT NULL,
   bank_account_id INTEGER REFERENCES bank_accounts(id),
-  total_amount    REAL NOT NULL DEFAULT 0,
+  total_amount    REAL NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+  invoice_kind    TEXT NOT NULL DEFAULT 'normal' CHECK(invoice_kind IN ('normal','return')),
+  original_invoice_id INTEGER REFERENCES sales_purchase_invoices(id),
+  subtotal        REAL NOT NULL DEFAULT 0 CHECK(subtotal >= 0),
+  discount_amount REAL NOT NULL DEFAULT 0 CHECK(discount_amount >= 0),
+  tax_rate        REAL NOT NULL DEFAULT 0 CHECK(tax_rate >= 0 AND tax_rate <= 100),
+  tax_amount      REAL NOT NULL DEFAULT 0 CHECK(tax_amount >= 0),
   description     TEXT,
   created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -77,8 +84,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   invoice_id        INTEGER NOT NULL REFERENCES sales_purchase_invoices(id) ON DELETE CASCADE,
   inventory_item_id INTEGER NOT NULL REFERENCES inventory_nodes(id),
-  quantity          REAL NOT NULL,
-  unit_price        REAL NOT NULL,
+  quantity          REAL NOT NULL CHECK (quantity > 0),
+  unit_price        REAL NOT NULL CHECK (unit_price >= 0),
   line_total        REAL NOT NULL
 );
 
@@ -127,7 +134,9 @@ CREATE TABLE IF NOT EXISTS receipts_payments (
   party        TEXT NOT NULL,
   method       TEXT NOT NULL,
   payment_date TEXT NOT NULL,
-  amount       REAL NOT NULL,
+  amount       REAL NOT NULL CHECK(amount > 0),
+  bank_account_id INTEGER REFERENCES bank_accounts(id),
+  cheque_id INTEGER REFERENCES cheques(id),
   description  TEXT,
   created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -139,8 +148,9 @@ CREATE TABLE IF NOT EXISTS petty_cash (
   entry_date  TEXT NOT NULL,
   type        TEXT NOT NULL CHECK (type IN ('topup', 'expense')),
   category    TEXT,
-  amount      REAL NOT NULL,
-  description TEXT
+  amount      REAL NOT NULL CHECK (amount > 0),
+  description TEXT,
+  bank_account_id INTEGER REFERENCES bank_accounts(id)
 );
 
 -- حسابداری چند ارزی
@@ -207,8 +217,8 @@ CREATE TABLE IF NOT EXISTS journal_voucher_lines (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   voucher_id  INTEGER NOT NULL REFERENCES journal_vouchers(id) ON DELETE CASCADE,
   account_id  INTEGER NOT NULL REFERENCES chart_of_accounts(id),
-  debit       REAL NOT NULL DEFAULT 0,
-  credit      REAL NOT NULL DEFAULT 0,
+  debit       REAL NOT NULL DEFAULT 0 CHECK (debit >= 0),
+  credit      REAL NOT NULL DEFAULT 0 CHECK (credit >= 0),
   description TEXT
 );
 
@@ -230,7 +240,16 @@ CREATE TABLE IF NOT EXISTS accounting_settings (
   cogs_account_id    INTEGER REFERENCES chart_of_accounts(id),
   inventory_account_id INTEGER REFERENCES chart_of_accounts(id),
   ar_account_id      INTEGER REFERENCES chart_of_accounts(id),
-  ap_account_id      INTEGER REFERENCES chart_of_accounts(id)
+  ap_account_id      INTEGER REFERENCES chart_of_accounts(id),
+  cash_account_id INTEGER REFERENCES chart_of_accounts(id),
+  petty_cash_account_id INTEGER REFERENCES chart_of_accounts(id),
+  vat_account_id INTEGER REFERENCES chart_of_accounts(id),
+  expense_account_id INTEGER REFERENCES chart_of_accounts(id),
+  other_payable_account_id INTEGER REFERENCES chart_of_accounts(id),
+  cheque_receivable_account_id INTEGER REFERENCES chart_of_accounts(id),
+  cheque_payable_account_id INTEGER REFERENCES chart_of_accounts(id),
+  retained_earnings_account_id INTEGER REFERENCES chart_of_accounts(id),
+  opening_closing_account_id INTEGER REFERENCES chart_of_accounts(id)
 );
 
 -- فرمول تولید (BOM) — سربرگ: نام فرمول و کالای خروجی
@@ -301,5 +320,60 @@ CREATE TABLE IF NOT EXISTS stock_adjustment_items (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   adjustment_id INTEGER NOT NULL REFERENCES stock_adjustments(id) ON DELETE CASCADE,
   item_id       INTEGER NOT NULL REFERENCES inventory_nodes(id),
-  quantity      REAL NOT NULL
+  quantity      REAL NOT NULL CHECK(quantity > 0),
+  unit_cost     REAL NOT NULL DEFAULT 0 CHECK(unit_cost >= 0)
+);
+
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id),
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id INTEGER,
+  details TEXT,
+  ip_address TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS financial_periods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL REFERENCES inventory_nodes(id),
+  event_date TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_id INTEGER NOT NULL,
+  quantity_in REAL NOT NULL DEFAULT 0 CHECK(quantity_in >= 0),
+  quantity_out REAL NOT NULL DEFAULT 0 CHECK(quantity_out >= 0),
+  unit_cost REAL NOT NULL DEFAULT 0 CHECK(unit_cost >= 0),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(source_type, source_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_item_date ON inventory_ledger(item_id, event_date, id);
+
+
+-- نسخه 2: گردش کامل حسابداری و فاکتور
+CREATE TABLE IF NOT EXISTS invoice_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id INTEGER NOT NULL REFERENCES sales_purchase_invoices(id) ON DELETE CASCADE,
+  linked_invoice_id INTEGER NOT NULL REFERENCES sales_purchase_invoices(id),
+  relation_type TEXT NOT NULL CHECK(relation_type IN ('return_of','amends')),
+  UNIQUE(invoice_id, linked_invoice_id, relation_type)
+);
+CREATE INDEX IF NOT EXISTS idx_invoice_links_invoice ON invoice_links(invoice_id);
+
+CREATE TABLE IF NOT EXISTS closing_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  period_id INTEGER NOT NULL REFERENCES financial_periods(id),
+  voucher_id INTEGER NOT NULL REFERENCES journal_vouchers(id),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(period_id)
 );

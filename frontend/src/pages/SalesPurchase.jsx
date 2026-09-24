@@ -19,7 +19,7 @@ const inputStyle = {
   minWidth: 0,
 };
 
-const emptyHeader = { type: "sale", party: "", invoice_date: "", bank_account_id: "", description: "" };
+const emptyHeader = { type: "sale", invoice_kind: "normal", original_invoice_id: "", party: "", invoice_date: "", bank_account_id: "", discount_amount: "", tax_rate: "", description: "" };
 const emptyRow = () => ({ _key: Math.random().toString(36).slice(2), inventory_item_id: null, item_name: "", item_unit: "", available_qty: null, quantity: "", unit_price: "" });
 
 function ItemRow({ row, invoiceType, formatPreferredCurrency, onChange, onRemove, onRequestQuickAdd }) {
@@ -403,8 +403,8 @@ export default function SalesPurchase() {
     const full = await api.invoices.get(row.id);
     setEditingId(row.id);
     setHeader({
-      type: full.type, party: full.party, invoice_date: full.invoice_date,
-      bank_account_id: full.bank_account_id || "", description: full.description || "",
+      type: full.type, invoice_kind: full.invoice_kind || "normal", original_invoice_id: full.original_invoice_id || "", party: full.party, invoice_date: full.invoice_date,
+      bank_account_id: full.bank_account_id || "", discount_amount: full.discount_amount || "", tax_rate: full.tax_rate || "", description: full.description || "",
     });
     setItems(full.items.map((it) => ({
       _key: Math.random().toString(36).slice(2),
@@ -430,7 +430,10 @@ export default function SalesPurchase() {
     setQuickAddFor(null);
   }
 
-  const total = items.reduce((sum, r) => sum + (Number(r.quantity) || 0) * (Number(r.unit_price) || 0), 0);
+  const subtotal = items.reduce((sum, r) => sum + (Number(r.quantity) || 0) * (Number(r.unit_price) || 0), 0);
+  const discount = Number(header.discount_amount) || 0;
+  const tax = Math.round(Math.max(0, subtotal - discount) * (Number(header.tax_rate) || 0) / 100);
+  const total = subtotal - discount + tax;
 
   async function submit(e) {
     e.preventDefault();
@@ -448,6 +451,9 @@ export default function SalesPurchase() {
     try {
       const payload = {
         ...header,
+        original_invoice_id: header.original_invoice_id || null,
+        discount_amount: Number(header.discount_amount) || 0,
+        tax_rate: Number(header.tax_rate) || 0,
         bank_account_id: header.bank_account_id || null,
         items: validItems.map((r) => ({ inventory_item_id: r.inventory_item_id, quantity: r.quantity, unit_price: r.unit_price })),
       };
@@ -568,6 +574,13 @@ export default function SalesPurchase() {
                     <option value="purchase">خرید</option>
                   </select>
                 </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+                  نوع عملیات
+                  <select value={header.invoice_kind} onChange={(e) => setHeader((h) => ({ ...h, invoice_kind: e.target.value, original_invoice_id: "" }))} style={inputStyle}>
+                    <option value="normal">عادی</option>
+                    <option value="return">برگشت</option>
+                  </select>
+                </label>
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)", gridColumn: "span 2" }}>
                   طرف حساب
                   <PartyPicker value={header.party} onChange={(v) => setHeader((h) => ({ ...h, party: v }))} />
@@ -577,6 +590,16 @@ export default function SalesPurchase() {
                   <JalaliDatePicker value={header.invoice_date} onChange={(v) => setHeader((h) => ({ ...h, invoice_date: v }))} />
                 </label>
               </div>
+
+              {header.invoice_kind === "return" && (
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+                  فاکتور اصلی
+                  <select required value={header.original_invoice_id} onChange={(e) => setHeader((h) => ({ ...h, original_invoice_id: e.target.value }))} style={inputStyle}>
+                    <option value="">انتخاب فاکتور اصلی</option>
+                    {invoices.filter(x => x.type === header.type && (x.invoice_kind || "normal") === "normal").map(x => <option key={x.id} value={x.id}>#{x.id} — {x.party} — {rial(x.total_amount)}</option>)}
+                  </select>
+                </label>
+              )}
 
               <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
                 حساب بانکی (برای ثبت خودکار سند حسابداری)
@@ -590,6 +613,17 @@ export default function SalesPurchase() {
                   <span style={{ color: "var(--brick)", fontSize: 11.5 }}>هنوز حسابی در تنظیمات تعریف نشده — بخش «تنظیمات اولیه» را ببینید.</span>
                 )}
               </label>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+                  تخفیف (ریال)
+                  <RialInput value={header.discount_amount} onChange={(v) => setHeader(h => ({ ...h, discount_amount: v }))} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--ink-soft)" }}>
+                  مالیات بر ارزش افزوده (%)
+                  <input type="number" min="0" max="100" step="0.01" value={header.tax_rate} onChange={(e) => setHeader(h => ({ ...h, tax_rate: e.target.value }))} style={inputStyle} />
+                </label>
+              </div>
 
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -611,9 +645,11 @@ export default function SalesPurchase() {
                 ))}
               </div>
 
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-                <span style={{ fontSize: 13, color: "var(--ink-soft)" }}>مبلغ کل فاکتور</span>
-                <span style={{ fontSize: 17, fontWeight: 700 }}>{rial(total)}</span>
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 6, fontSize: 13 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>مبلغ ناخالص</span><span>{rial(subtotal)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>تخفیف</span><span>{rial(discount)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>مالیات</span><span>{rial(tax)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: 17 }}><span>مبلغ نهایی</span><span>{rial(total)}</span></div>
               </div>
 
               {formError && <div style={{ color: "var(--brick)", fontSize: 12.5 }}>{formError}</div>}

@@ -49,4 +49,24 @@
 ❌ Port 4000 is already in use by another process.
 [2026-09-23T13:54:41.341Z] [error]    Either stop whatever is using it, or run with a different port:
 [2026-09-23T13:54:41.342Z] [error]      PORT=4001 npm run start   (and update frontend/vite.config.js proxy target to match)
-
+[2026-09-23T13:59:42.423Z] [error] 
+❌ Port 4000 is already in use by another process.
+[2026-09-23T13:59:42.425Z] [error]    Either stop whatever is using it, or run with a different port:
+[2026-09-23T13:59:42.425Z] [error]      PORT=4001 npm run start   (and update frontend/vite.config.js proxy target to match)
+[2026-09-23T20:00:16.012Z] [error] 
+❌ Port 4000 is already in use by another process.
+[2026-09-23T20:00:16.013Z] [error]    Either stop whatever is using it, or run with a different port:
+[2026-09-23T20:00:16.013Z] [error]      PORT=4001 npm run start   (and update frontend/vite.config.js proxy target to match)
+[2026-09-23T20:00:49.929Z] [log] ✅ Accounting backend running on http://0.0.0.0:4001
+[2026-09-23T20:02:12.896Z] [log] ✅ Accounting backend running on http://0.0.0.0:4001
+[2026-09-23T20:05:38.400Z] [error] NOT NULL constraint failed: petty_cash.fund_name
+[2026-09-23T20:05:38.432Z] [error] NOT NULL constraint failed: fx_transactions.entry_date
+[2026-09-23T20:09:27.072Z] [error] NOT NULL constraint failed: production_orders.product_name
+[2026-09-23T20:09:27.087Z] [error] NOT NULL constraint failed: modayan_submissions.submission_date
+[2026-09-23T23:02:23.148Z] [error] Exchange rate fetch failed: fetch failed
+[2026-09-24T18:48:25.798Z] [error] Initial accounting rebuild warning: موجودی کالا در تاریخ 1405/06/01 برای کالا 3 منفی می‌شود.
+[2026-09-24T18:48:25.824Z] [log] ✅ Accounting backend running on http://localhost:4000
+[2026-09-24T18:53:13.136Z] [error] Initial accounting rebuild warning: موجودی کالا در تاریخ 1405/06/01 برای کالا 3 منفی می‌شود.
+[2026-09-24T18:53:13.151Z] [log] ✅ Accounting backend running on http://localhost:4000
+[2026-09-24T19:01:29.808Z] [error] Initial accounting rebuild warning: موجودی کالا در تاریخ 1405/06/01 برای کالا 3 منفی می‌شود.
+[2026-09-24T19:01:29.823Z] [log] ✅ Accounting backend running on http://localhost:4000

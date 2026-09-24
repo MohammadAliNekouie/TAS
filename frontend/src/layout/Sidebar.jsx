@@ -14,6 +14,7 @@ const groups = [
     items: [
       { to: "/chart-of-accounts", label: "کدینگ حسابداری", icon: BookOpen },
       { to: "/journal-vouchers", label: "اسناد حسابداری", icon: ClipboardList },
+      { to: "/financial-periods", label: "دوره‌های مالی", icon: ClipboardList },
     ],
   },
   {
@@ -167,6 +168,7 @@ export default function Sidebar({ theme, onToggleTheme }) {
       <div style={{ paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 2 }}>
         <NavItem to="/parties" label="طرف‌های حساب" icon={Users} />
         {user?.role === "admin" && <NavItem to="/settings" label="تنظیمات اولیه" icon={Settings} />}
+        {user?.role === "admin" && <NavItem to="/audit-log" label="گزارش رویدادها" icon={ClipboardList} />}
         {user?.role === "admin" && <NavItem to="/users" label="کاربران و دسترسی" icon={UserCog} />}
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px 2px", marginTop: 6 }}>

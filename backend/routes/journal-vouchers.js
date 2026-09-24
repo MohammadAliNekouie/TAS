@@ -1,5 +1,6 @@
 const express = require("express");
 const db = require("../db");
+const { money, assertPeriodOpen } = require("../lib/accounting");
 
 const router = express.Router();
 
@@ -25,19 +26,16 @@ function validateLines(lines) {
   let totalDebit = 0;
   let totalCredit = 0;
   for (const l of lines) {
-    const debit = Number(l.debit) || 0;
-    const credit = Number(l.credit) || 0;
+    const debit = Number(l.debit);
+    const credit = Number(l.credit);
+    if (!Number.isFinite(debit) || !Number.isFinite(credit) || !Number.isInteger(debit) || !Number.isInteger(credit) || debit < 0 || credit < 0) return "مبالغ سند باید عددی و غیرمنفی باشند.";
     if (debit > 0 && credit > 0) return "هر ردیف فقط می‌تواند بدهکار یا بستانکار باشد، نه هر دو.";
     if (debit === 0 && credit === 0) return "هر ردیف باید مبلغ بدهکار یا بستانکار داشته باشد.";
     if (!l.account_id) return "برای هر ردیف باید یک حساب انتخاب شود.";
     totalDebit += debit;
     totalCredit += credit;
   }
-  
-  // Use a tighter tolerance (0.01 Rial = 1 cent) for balance validation.
-  // Floating-point arithmetic can introduce tiny errors, but anything beyond
-  // one cent indicates a real accounting imbalance.
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+  if (Math.abs(totalDebit - totalCredit) > 0.000001) {
     return `سند تراز نیست: جمع بدهکار ${totalDebit.toLocaleString("en-US")} و جمع بستانکار ${totalCredit.toLocaleString("en-US")} برابر نیستند.`;
   }
   return null;
@@ -71,6 +69,7 @@ function assertEditable(voucher) {
 router.post("/", (req, res) => {
   const { voucher_date, description = "", lines = [] } = req.body;
   if (!voucher_date) return res.status(400).json({ error: "تاریخ سند الزامی است." });
+  try { assertPeriodOpen(voucher_date); } catch (e) { return res.status(400).json({ error: e.message }); }
   const err = validateLines(lines);
   if (err) return res.status(400).json({ error: err });
 
@@ -99,6 +98,7 @@ router.post("/", (req, res) => {
 router.put("/:id", (req, res) => {
   const { voucher_date, description = "", lines = [] } = req.body;
   if (!voucher_date) return res.status(400).json({ error: "تاریخ سند الزامی است." });
+  try { assertPeriodOpen(voucher_date); } catch (e) { return res.status(400).json({ error: e.message }); }
   const err = validateLines(lines);
   if (err) return res.status(400).json({ error: err });
 

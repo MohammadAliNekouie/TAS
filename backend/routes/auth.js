@@ -10,17 +10,16 @@ router.post("/login", (req, res) => {
   if (!username || !password) return res.status(400).json({ error: "نام کاربری و رمز عبور الزامی است." });
 
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
-  
-  // Use constant-time verification even if user doesn't exist to prevent timing attacks
-  const isValid = user && verifyPassword(password, user.password_hash);
-  
-  if (!isValid) {
+  if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: "نام کاربری یا رمز عبور اشتباه است." });
   }
 
   const token = signToken(user);
-  res.json({ token, user: { id: user.id, username: user.username, full_name: user.full_name, role: user.role } });
+  res.setHeader("Set-Cookie", `tas_session=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=43200${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+  res.json({ user: { id: user.id, username: user.username, full_name: user.full_name, role: user.role } });
 });
+
+router.post("/logout", (req,res)=>{ res.setHeader("Set-Cookie", "tas_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0" + (process.env.NODE_ENV === "production" ? "; Secure" : "")); res.json({ok:true}); });
 
 router.get("/me", requireAuth, (req, res) => {
   res.json(req.user);

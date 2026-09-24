@@ -2,9 +2,10 @@ const BASE = "/api";
 
 import { getStoredToken } from "./authContext.jsx";
 
-async function request(path, options) {
+async function request(path, options = {}) {
   const token = getStoredToken();
   const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -56,6 +57,11 @@ export const api = {
   trialBalance: () => get("/reports/trial-balance"),
   incomeStatement: () => get("/reports/income-statement"),
   balanceSheet: () => get("/reports/balance-sheet"),
+  ledger: (params="") => get(`/reports/ledger${params ? `?${params}` : ""}`),
+  partyLedger: (party="") => get(`/reports/party-ledger?party=${encodeURIComponent(party)}`),
+  cashFlow: () => get("/reports/cash-flow"),
+  inventoryMovement: (itemId="") => get(`/reports/inventory-movement${itemId ? `?item_id=${itemId}` : ""}`),
+  grossProfit: () => get("/reports/gross-profit"),
 
   company: {
     get: () => get("/company"),
@@ -112,7 +118,7 @@ export const api = {
     async import(file) {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${BASE}/backup/import`, { method: "POST", body: formData, cache: "no-store" });
+      const res = await fetch(`${BASE}/backup/import`, { method: "POST", body: formData, credentials: "include", cache: "no-store" });
       if (!res.ok) {
         let msg = "بازیابی اطلاعات ناموفق بود.";
         try {
@@ -141,6 +147,14 @@ export function crudApi(resource) {
 export const authApi = {
   login: (username, password) => post("/auth/login", { username, password }),
   me: () => get("/auth/me"),
+};
+
+export const auditLogApi = { list: (limit=100) => get(`/audit-log?limit=${limit}`) };
+
+export const financialPeriodsApi = {
+  list: () => get("/financial-periods"),
+  create: (data) => post("/financial-periods", data),
+  close: (id) => post(`/financial-periods/${id}/close`, {}),
 };
 
 export const accountingSettingsApi = {

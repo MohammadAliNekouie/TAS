@@ -1,341 +1,84 @@
-const express = require("express");
-const db = require("../db");
-const { normalizePersian } = require("../lib/persian");
+const express=require('express');
+const db=require('../db');
+const {normalizePersian}=require('../lib/persian');
+const {rebuildInventory}=require('../lib/inventoryLedger');
+const {money,resolveAccount,postVoucher,deleteSourceVoucher,recomputeBankBalances,assertPeriodOpen}=require('../lib/accounting');
+const router=express.Router();
 
-const router = express.Router();
+function getInvoiceWithItems(id){
+ const invoice=db.prepare(`SELECT i.*,b.name bank_account_name FROM sales_purchase_invoices i LEFT JOIN bank_accounts b ON b.id=i.bank_account_id WHERE i.id=?`).get(id); if(!invoice)return null;
+ const items=db.prepare(`SELECT ii.*,n.name item_name,n.unit item_unit,n.code item_code FROM invoice_items ii JOIN inventory_nodes n ON n.id=ii.inventory_item_id WHERE ii.invoice_id=? ORDER BY ii.id`).all(id);
+ return {...invoice,items};
+}
+function settings(){return db.prepare('SELECT * FROM accounting_settings WHERE id=1').get()||{};}
+function partyAccount(type,party){
+ const row=db.prepare('SELECT legal_status FROM parties WHERE name_normalized=?').get(normalizePersian(party));
+ return row?.legal_status==='individual' ? (type==='sale'?'1412':'3202') : (type==='sale'?'1411':'3201');
+}
+function assertStock(items){for(const it of items){const n=db.prepare('SELECT name,qty_on_hand,unit FROM inventory_nodes WHERE id=?').get(it.inventory_item_id);if(!n)throw new Error('کالای انتخاب‌شده یافت نشد.');if(Number(it.quantity)<=0)throw new Error('تعداد باید بیشتر از صفر باشد.');if(Number(it.quantity)>Number(n.qty_on_hand)+1e-9)throw new Error(`موجودی «${n.name}» کافی نیست (موجودی: ${n.qty_on_hand} ${n.unit||''}).`);}}
+function validateInvoiceBody(body){
+ const {type,party,invoice_date,items=[]}=body;
+ if(!['sale','purchase'].includes(type))throw new Error('نوع فاکتور نامعتبر است.');
+ if(!party||!invoice_date||!Array.isArray(items)||!items.length)throw new Error('نوع، طرف حساب، تاریخ و حداقل یک قلم الزامی است.');
+ const discount=money(body.discount_amount||0,'تخفیف'); const taxRate=Number(body.tax_rate||0); if(!Number.isFinite(taxRate)||taxRate<0||taxRate>100)throw new Error('نرخ مالیات باید بین صفر تا صد باشد.');
+ for(const it of items){if(!Number.isInteger(Number(it.inventory_item_id))||Number(it.inventory_item_id)<=0||!Number.isFinite(Number(it.quantity))||Number(it.quantity)<=0||!Number.isInteger(Number(it.unit_price))||Number(it.unit_price)<0)throw new Error('تعداد و قیمت ردیف‌های فاکتور نامعتبر است.');}
+ const subtotal=Math.round(items.reduce((s,it)=>s+Number(it.quantity)*Number(it.unit_price),0)); if(discount>subtotal)throw new Error('تخفیف نمی‌تواند بیشتر از مبلغ ناخالص باشد.');
+ const tax=Math.round((subtotal-discount)*taxRate/100); return {subtotal,discount,taxRate,tax,total:Math.round(subtotal-discount+tax)};
+}
+function deleteInvoiceVoucher(id){deleteSourceVoucher('sales_purchase_invoice',id);}
+function maybeReminder(id,type,party){db.prepare('DELETE FROM modayan_reminders WHERE invoice_id=?').run(id);const p=db.prepare('SELECT legal_status FROM parties WHERE name_normalized=?').get(normalizePersian(party));if(!p)return;let reason=null;if(type==='sale'&&p.legal_status==='individual')reason=`فروش به شخص حقیقی «${party}» — بررسی ثبت در سامانه مودیان.`;if(type==='purchase'&&p.legal_status==='legal')reason=`خرید از شخص حقوقی «${party}» — بررسی ثبت در سامانه مودیان.`;if(reason)db.prepare('INSERT INTO modayan_reminders(invoice_id,reason) VALUES(?,?)').run(id,reason);}
 
-function getInvoiceWithItems(id) {
-  const invoice = db
-    .prepare(
-      `SELECT i.*, b.name AS bank_account_name
-       FROM sales_purchase_invoices i
-       LEFT JOIN bank_accounts b ON b.id = i.bank_account_id
-       WHERE i.id = ?`
-    )
-    .get(id);
-  if (!invoice) return null;
-  const items = db
-    .prepare(
-      `SELECT ii.*, n.name AS item_name, n.unit AS item_unit, n.code AS item_code
-       FROM invoice_items ii
-       JOIN inventory_nodes n ON n.id = ii.inventory_item_id
-       WHERE ii.invoice_id = ?
-       ORDER BY ii.id`
-    )
-    .all(id);
-  return { ...invoice, items };
+function invoiceCogs(invoiceId, costs){const inv=db.prepare('SELECT invoice_kind,type FROM sales_purchase_invoices WHERE id=?').get(invoiceId);if(!inv||inv.type!=='sale')return 0;if(inv.invoice_kind==='return')return Math.round(Number(db.prepare("SELECT COALESCE(SUM(quantity_in*unit_cost),0) v FROM inventory_ledger WHERE source_type='invoice' AND source_id=?").get(invoiceId).v||0));const c=costs.get(invoiceId);return c?Math.round(Array.from(c.values()).reduce((a,b)=>a+b,0)):0;}
+function repostAllInvoices(costs){for(const inv of db.prepare('SELECT * FROM sales_purchase_invoices ORDER BY invoice_date,id').all()){postInvoiceGL(inv,invoiceCogs(inv.id,costs));maybeReminder(inv.id,inv.type,inv.party);}}
+
+function postInvoiceGL(inv,cogs){
+ const s=settings();
+ const moneyAccount=inv.bank_account_id ? db.prepare('SELECT coa_account_id FROM bank_accounts WHERE id=?').get(inv.bank_account_id)?.coa_account_id : null;
+ const counterpart=moneyAccount || db.prepare(`SELECT id FROM chart_of_accounts WHERE code=?`).get(partyAccount(inv.type,inv.party))?.id;
+ if(!counterpart)throw new Error('حساب طرف حساب/بانک برای ثبت سند پیدا نشد.');
+ const salesId=resolveAccount(s.sales_account_id,'6101','فروش');
+ const invId=resolveAccount(s.inventory_account_id,'1701','موجودی کالا');
+ const cogsId=resolveAccount(s.cogs_account_id,'7307','بهای تمام‌شده');
+ const vatId=resolveAccount(s.vat_account_id,'1510','مالیات بر ارزش افزوده');
+ const arap=counterpart;
+ const desc=`${inv.invoice_kind==='return'?'برگشت ':''}${inv.type==='sale'?'فروش':'خرید'} شماره ${inv.id} — ${inv.party}`;
+ const lines=[]; const sign=inv.invoice_kind==='return'?-1:1;
+ if(inv.type==='sale'){
+   if(sign===1){lines.push({account_id:arap,debit:inv.total_amount,credit:0});lines.push({account_id:salesId,debit:0,credit:inv.subtotal-inv.discount_amount});if(inv.tax_amount)lines.push({account_id:vatId,debit:0,credit:inv.tax_amount});}
+   else {lines.push({account_id:salesId,debit:inv.subtotal-inv.discount_amount,credit:0});if(inv.tax_amount)lines.push({account_id:vatId,debit:inv.tax_amount,credit:0});lines.push({account_id:arap,debit:0,credit:inv.total_amount});}
+   const cost=Number(cogs||0);if(cost){if(sign===1){lines.push({account_id:cogsId,debit:cost,credit:0});lines.push({account_id:invId,debit:0,credit:cost});}else{lines.push({account_id:invId,debit:cost,credit:0});lines.push({account_id:cogsId,debit:0,credit:cost});}}
+ } else {
+   if(sign===1){lines.push({account_id:invId,debit:inv.subtotal-inv.discount_amount,credit:0});if(inv.tax_amount)lines.push({account_id:vatId,debit:inv.tax_amount,credit:0});lines.push({account_id:arap,debit:0,credit:inv.total_amount});}
+   else {lines.push({account_id:arap,debit:inv.total_amount,credit:0});lines.push({account_id:invId,debit:0,credit:inv.subtotal-inv.discount_amount});if(inv.tax_amount)lines.push({account_id:vatId,debit:0,credit:inv.tax_amount});}
+ }
+ return postVoucher({date:inv.invoice_date,description:desc,sourceType:'sales_purchase_invoice',sourceId:inv.id,lines});
 }
 
-// This function MUST be called within a db.transaction() context to ensure
-// atomic updates and prevent race conditions on concurrent invoice posting.
-function applyBankEffect(bankAccountId, type, amount, sign = 1) {
-  if (!bankAccountId) return;
-  const delta = (type === "sale" ? 1 : -1) * amount * sign;
-  const result = db.prepare("UPDATE bank_accounts SET current_balance = current_balance + ? WHERE id = ?").run(delta, bankAccountId);
-  if (result.changes === 0) throw new Error("حساب بانکی یافت نشد.");
-}
+router.get('/',(req,res)=>res.json(db.prepare(`SELECT i.*,b.name bank_account_name,(SELECT COUNT(*) FROM invoice_items WHERE invoice_id=i.id) item_count FROM sales_purchase_invoices i LEFT JOIN bank_accounts b ON b.id=i.bank_account_id ORDER BY i.id DESC`).all()));
+router.get('/:id',(req,res)=>{const x=getInvoiceWithItems(req.params.id);if(!x)return res.status(404).json({error:'not found'});res.json(x);});
 
-// Sale: just decrements qty_on_hand (avg_cost is untouched — selling doesn't
-// change what remaining stock cost). Purchase: recomputes a new weighted-
-// average unit cost blended with whatever's already on hand, THEN updates
-// qty_on_hand. Returns, per item, the avg_cost to use for GL/COGS purposes
-// (the pre-sale cost for sales; the newly-blended cost for purchases).
-function applyStockEffect(items, type, sign = 1) {
-  const costByItem = {};
-  for (const it of items) {
-    const node = db.prepare("SELECT qty_on_hand, avg_cost FROM inventory_nodes WHERE id = ?").get(it.inventory_item_id);
-    const qty = Number(it.quantity) * sign;
+router.post('/',(req,res)=>{try{
+ const body=req.body; const calc=validateInvoiceBody(body); assertPeriodOpen(body.invoice_date); if(body.invoice_kind==='return'&& !body.original_invoice_id)throw new Error('برای برگشت، فاکتور اصلی الزامی است.');
+ if(body.invoice_kind==='return'){const orig=db.prepare('SELECT * FROM sales_purchase_invoices WHERE id=?').get(body.original_invoice_id);if(!orig||orig.type!==body.type||orig.invoice_kind==='return'||normalizePersian(orig.party)!==normalizePersian(body.party))throw new Error('فاکتور اصلی برگشت معتبر نیست یا طرف حساب آن متفاوت است.');for(const it of body.items){const origLine=db.prepare('SELECT COALESCE(SUM(quantity),0) q FROM invoice_items WHERE invoice_id=? AND inventory_item_id=?').get(orig.id,it.inventory_item_id);if(!origLine.q)throw new Error('کالای برگشتی در فاکتور اصلی وجود ندارد.');const returned=db.prepare(`SELECT COALESCE(SUM(ii.quantity),0) q FROM invoice_items ii JOIN sales_purchase_invoices r ON r.id=ii.invoice_id WHERE r.original_invoice_id=? AND r.invoice_kind='return' AND r.id<>? AND ii.inventory_item_id=?`).get(orig.id,0,it.inventory_item_id);if(Number(it.quantity)+Number(returned.q)>Number(origLine.q)+1e-9)throw new Error('مقدار برگشتی بیشتر از مقدار فاکتور اصلی است.');}}
+ if((body.type==='sale'&&body.invoice_kind!=='return')||(body.type==='purchase'&&body.invoice_kind==='return'))assertStock(body.items);
+ const tx=db.transaction(()=>{
+   const info=db.prepare(`INSERT INTO sales_purchase_invoices(type,party,invoice_date,bank_account_id,total_amount,description,invoice_kind,original_invoice_id,subtotal,discount_amount,tax_rate,tax_amount) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(body.type,body.party,body.invoice_date,body.bank_account_id||null,calc.total,body.description||'',body.invoice_kind||'normal',body.original_invoice_id||null,calc.subtotal,calc.discount,calc.taxRate,calc.tax);
+   const id=Number(info.lastInsertRowid);const ins=db.prepare('INSERT INTO invoice_items(invoice_id,inventory_item_id,quantity,unit_price,line_total) VALUES(?,?,?,?,?)');for(const it of body.items)ins.run(id,it.inventory_item_id,it.quantity,it.unit_price,Number(it.quantity)*Number(it.unit_price));
+   if(body.invoice_kind==='return'&&body.original_invoice_id)db.prepare(`INSERT INTO invoice_links(invoice_id,linked_invoice_id,relation_type) VALUES(?,?,?)`).run(id,body.original_invoice_id,'return_of');
+   const costs=rebuildInventory(); repostAllInvoices(costs); recomputeBankBalances();return id;
+ });
+ res.status(201).json(getInvoiceWithItems(tx()));
+ }catch(e){res.status(400).json({error:e.message});}});
 
-    if (type === "purchase" && sign > 0) {
-      // Only blend cost on a forward-going purchase (not on its reversal —
-      // reversing a historical weighted-average blend isn't generally
-      // sound, so edits/deletes only ever undo the quantity, not the cost;
-      // see README for this known limitation of moving-average costing.
-      const oldQty = node?.qty_on_hand || 0;
-      const oldAvg = node?.avg_cost || 0;
-      const newQty = oldQty + qty;
-      const newAvg = newQty > 0 ? (oldQty * oldAvg + qty * Number(it.unit_price)) / newQty : 0;
-      db.prepare("UPDATE inventory_nodes SET qty_on_hand = ?, avg_cost = ? WHERE id = ?").run(newQty, newAvg, it.inventory_item_id);
-      costByItem[it.inventory_item_id] = newAvg;
-    } else {
-      const change = type === "sale" ? -qty : qty;
-      db.prepare("UPDATE inventory_nodes SET qty_on_hand = qty_on_hand + ? WHERE id = ?").run(change, it.inventory_item_id);
-      costByItem[it.inventory_item_id] = node?.avg_cost || 0;
-    }
-  }
-  return costByItem;
-}
-
-function assertSufficientStock(items) {
-  for (const it of items) {
-    const node = db.prepare("SELECT name, qty_on_hand, unit FROM inventory_nodes WHERE id = ?").get(it.inventory_item_id);
-    if (!node) throw new Error("کالای انتخاب‌شده در انبار یافت نشد.");
-    if (Number(it.quantity) > node.qty_on_hand) {
-      throw new Error(`موجودی «${node.name}» کافی نیست (موجودی فعلی: ${node.qty_on_hand} ${node.unit || ""}).`);
-    }
-  }
-}
-
-function getAccountingSettings() {
-  return db.prepare("SELECT * FROM accounting_settings WHERE id = 1").get() || {};
-}
-
-// Deletes whatever auto-generated voucher is tied to this invoice (if any).
-// Lines cascade automatically.
-function deleteInvoiceVoucher(invoiceId) {
-  db.prepare("DELETE FROM journal_vouchers WHERE source_type = 'sales_purchase_invoice' AND source_id = ?").run(invoiceId);
-}
-
-// Since parties are only linked to invoices by name (not a foreign key —
-// see README), this looks the party up by normalized name at posting time.
-// If no matching party record exists (free-typed name), there's nothing to
-// check against, so no reminder is created — that's an acceptable gap given
-// the same name-based simplification documented elsewhere.
-function maybeCreateModayanReminder(invoiceId, type, party) {
-  db.prepare("DELETE FROM modayan_reminders WHERE invoice_id = ?").run(invoiceId);
-
-  const partyRow = db.prepare("SELECT legal_status FROM parties WHERE name_normalized = ?").get(normalizePersian(party));
-  if (!partyRow?.legal_status) return;
-
-  let reason = null;
-  if (type === "sale" && partyRow.legal_status === "individual") {
-    reason = `فروش به شخص حقیقی «${party}» — بررسی و ثبت این فاکتور در سامانه مودیان را فراموش نکنید.`;
-  } else if (type === "purchase" && partyRow.legal_status === "legal") {
-    reason = `خرید از شخص حقوقی «${party}» — بررسی این فاکتور در سامانه مودیان را فراموش نکنید.`;
-  }
-  if (reason) {
-    db.prepare("INSERT INTO modayan_reminders (invoice_id, reason) VALUES (?, ?)").run(invoiceId, reason);
-  }
-}
-
-// Builds and inserts a real double-entry journal voucher for this invoice,
-// IF the accounting mapping needed for this specific scenario is fully
-// configured. Returns a warning string when it's not (invoice still saves
-// either way — GL posting is additive, not a hard requirement).
-function postInvoiceToLedger({ invoiceId, type, invoiceDate, party, bankAccountId, total, costByItem, items }) {
-  const settings = getAccountingSettings();
-  const bankAccount = bankAccountId ? db.prepare("SELECT * FROM bank_accounts WHERE id = ?").get(bankAccountId) : null;
-  const moneyAccountId = bankAccount?.coa_account_id || (type === "sale" ? settings.ar_account_id : settings.ap_account_id);
-
-  if (!moneyAccountId) {
-    return bankAccountId
-      ? "سند حسابداری ثبت نشد: حساب بانکی انتخابی به هیچ حساب کل/معینی متصل نیست (در تنظیمات اولیه اصلاح کنید)."
-      : `سند حسابداری ثبت نشد: حساب ${type === "sale" ? "دریافتنی" : "پرداختنی"} پیش‌فرض در «اتصال حسابداری» تنظیم نشده است.`;
-  }
-  if (type === "sale" && !settings.sales_account_id) {
-    return "سند حسابداری ثبت نشد: حساب فروش پیش‌فرض در «اتصال حسابداری» تنظیم نشده است.";
-  }
-  if (type === "purchase" && !settings.inventory_account_id) {
-    return "سند حسابداری ثبت نشد: حساب موجودی کالا در «اتصال حسابداری» تنظیم نشده است.";
-  }
-
-  const lines = [];
-  const desc = `فاکتور ${type === "sale" ? "فروش" : "خرید"} شماره ${invoiceId} — ${party}`;
-
-  if (type === "sale") {
-    lines.push({ account_id: moneyAccountId, debit: total, credit: 0, description: desc });
-    lines.push({ account_id: settings.sales_account_id, debit: 0, credit: total, description: desc });
-
-    if (settings.cogs_account_id && settings.inventory_account_id) {
-      const cogs = items.reduce((s, it) => s + Number(it.quantity) * (costByItem[it.inventory_item_id] || 0), 0);
-      if (cogs > 0) {
-        lines.push({ account_id: settings.cogs_account_id, debit: cogs, credit: 0, description: `بهای تمام‌شده — ${desc}` });
-        lines.push({ account_id: settings.inventory_account_id, debit: 0, credit: cogs, description: `بهای تمام‌شده — ${desc}` });
-      }
-    }
-  } else {
-    lines.push({ account_id: settings.inventory_account_id, debit: total, credit: 0, description: desc });
-    lines.push({ account_id: moneyAccountId, debit: 0, credit: total, description: desc });
-  }
-
-  const info = db
-    .prepare("INSERT INTO journal_vouchers (voucher_date, description, status, source_type, source_id) VALUES (?, ?, 'permanent', 'sales_purchase_invoice', ?)")
-    .run(invoiceDate, desc, invoiceId);
-  const voucherId = info.lastInsertRowid;
-  const insertLine = db.prepare(
-    `INSERT INTO journal_voucher_lines (voucher_id, account_id, debit, credit, description)
-     VALUES (@voucher_id, @account_id, @debit, @credit, @description)`
-  );
-  for (const l of lines) insertLine.run({ voucher_id: voucherId, ...l });
-
-  return null;
-}
-
-router.get("/", (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT i.*, b.name AS bank_account_name,
-              (SELECT COUNT(*) FROM invoice_items WHERE invoice_id = i.id) AS item_count
-       FROM sales_purchase_invoices i
-       LEFT JOIN bank_accounts b ON b.id = i.bank_account_id
-       ORDER BY i.id DESC`
-    )
-    .all();
-  res.json(rows);
-});
-
-router.get("/:id", (req, res) => {
-  const invoice = getInvoiceWithItems(req.params.id);
-  if (!invoice) return res.status(404).json({ error: "not found" });
-  res.json(invoice);
-});
-
-router.post("/", (req, res) => {
-  const { type, party, invoice_date, bank_account_id, description = "", items = [] } = req.body;
-  if (!type || !party || !invoice_date) return res.status(400).json({ error: "type, party, invoice_date required" });
-  if (!items.length) return res.status(400).json({ error: "at least one invoice item is required" });
-  
-  // Validate all quantities and prices are positive numbers
-  for (const item of items) {
-    const qty = Number(item.quantity);
-    const price = Number(item.unit_price);
-    
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
-    }
-    
-    if (isNaN(price) || price < 0) {
-      return res.status(400).json({ error: "قیمت واحد نمی‌تواند منفی باشد." });
-    }
-    
-    if (!item.inventory_item_id) {
-      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
-    }
-  }
-
-  try {
-    let glWarning = null;
-    const tx = db.transaction(() => {
-      if (type === "sale") assertSufficientStock(items);
-
-      const total = items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unit_price), 0);
-
-      const info = db
-        .prepare(
-          `INSERT INTO sales_purchase_invoices (type, party, invoice_date, bank_account_id, total_amount, description)
-           VALUES (@type, @party, @invoice_date, @bank_account_id, @total, @description)`
-        )
-        .run({ type, party, invoice_date, bank_account_id: bank_account_id || null, total, description });
-
-      const invoiceId = info.lastInsertRowid;
-
-      const insertItem = db.prepare(
-        `INSERT INTO invoice_items (invoice_id, inventory_item_id, quantity, unit_price, line_total)
-         VALUES (@invoice_id, @inventory_item_id, @quantity, @unit_price, @line_total)`
-      );
-      for (const it of items) {
-        insertItem.run({
-          invoice_id: invoiceId, inventory_item_id: it.inventory_item_id, quantity: it.quantity, unit_price: it.unit_price,
-          line_total: Number(it.quantity) * Number(it.unit_price),
-        });
-      }
-
-      const costByItem = applyStockEffect(items, type, 1);
-      if (bank_account_id) applyBankEffect(bank_account_id, type, total, 1);
-
-      glWarning = postInvoiceToLedger({ invoiceId, type, invoiceDate: invoice_date, party, bankAccountId: bank_account_id, total, costByItem, items });
-      maybeCreateModayanReminder(invoiceId, type, party);
-
-      return invoiceId;
-    });
-
-    const invoiceId = tx();
-    res.status(201).json({ ...getInvoiceWithItems(invoiceId), gl_warning: glWarning });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.put("/:id", (req, res) => {
-  const { type, party, invoice_date, bank_account_id, description = "", items = [] } = req.body;
-  if (!type || !party || !invoice_date) return res.status(400).json({ error: "type, party, invoice_date required" });
-  if (!items.length) return res.status(400).json({ error: "at least one invoice item is required" });
-  
-  // Validate all quantities and prices are positive numbers
-  for (const item of items) {
-    const qty = Number(item.quantity);
-    const price = Number(item.unit_price);
-    
-    if (isNaN(qty) || qty <= 0) {
-      return res.status(400).json({ error: "تعداد باید یک عدد مثبت باشد." });
-    }
-    
-    if (isNaN(price) || price < 0) {
-      return res.status(400).json({ error: "قیمت واحد نمی‌تواند منفی باشد." });
-    }
-    
-    if (!item.inventory_item_id) {
-      return res.status(400).json({ error: "همه ردیف‌ها باید یک کالا انتخاب شده داشته باشند." });
-    }
-  }
-
-  const existing = db.prepare("SELECT * FROM sales_purchase_invoices WHERE id = ?").get(req.params.id);
-  if (!existing) return res.status(404).json({ error: "not found" });
-  const existingItems = db.prepare("SELECT inventory_item_id, quantity FROM invoice_items WHERE invoice_id = ?").all(req.params.id);
-
-  try {
-    let glWarning = null;
-    const tx = db.transaction(() => {
-      applyStockEffect(existingItems, existing.type, -1);
-      if (existing.bank_account_id) {
-        applyBankEffect(existing.bank_account_id, existing.type, existing.total_amount, -1);
-      }
-      deleteInvoiceVoucher(req.params.id);
-
-      if (type === "sale") assertSufficientStock(items);
-
-      db.prepare("DELETE FROM invoice_items WHERE invoice_id = ?").run(req.params.id);
-
-      const total = items.reduce((sum, it) => sum + Number(it.quantity) * Number(it.unit_price), 0);
-
-      db.prepare(
-        `UPDATE sales_purchase_invoices
-         SET type = @type, party = @party, invoice_date = @invoice_date,
-             bank_account_id = @bank_account_id, total_amount = @total, description = @description
-         WHERE id = @id`
-      ).run({ type, party, invoice_date, bank_account_id: bank_account_id || null, total, description, id: req.params.id });
-
-      const insertItem = db.prepare(
-        `INSERT INTO invoice_items (invoice_id, inventory_item_id, quantity, unit_price, line_total)
-         VALUES (@invoice_id, @inventory_item_id, @quantity, @unit_price, @line_total)`
-      );
-      for (const it of items) {
-        insertItem.run({
-          invoice_id: req.params.id, inventory_item_id: it.inventory_item_id, quantity: it.quantity, unit_price: it.unit_price,
-          line_total: Number(it.quantity) * Number(it.unit_price),
-        });
-      }
-
-      const costByItem = applyStockEffect(items, type, 1);
-      if (bank_account_id) applyBankEffect(bank_account_id, type, total, 1);
-
-      glWarning = postInvoiceToLedger({ invoiceId: req.params.id, type, invoiceDate: invoice_date, party, bankAccountId: bank_account_id, total, costByItem, items });
-      maybeCreateModayanReminder(req.params.id, type, party);
-    });
-
-    tx();
-    res.json({ ...getInvoiceWithItems(req.params.id), gl_warning: glWarning });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.delete("/:id", (req, res) => {
-  const existing = db.prepare("SELECT * FROM sales_purchase_invoices WHERE id = ?").get(req.params.id);
-  if (!existing) return res.status(404).json({ error: "not found" });
-  const existingItems = db.prepare("SELECT inventory_item_id, quantity FROM invoice_items WHERE invoice_id = ?").all(req.params.id);
-
-  const tx = db.transaction(() => {
-    applyStockEffect(existingItems, existing.type, -1);
-    if (existing.bank_account_id) {
-      applyBankEffect(existing.bank_account_id, existing.type, existing.total_amount, -1);
-    }
-    deleteInvoiceVoucher(req.params.id);
-    db.prepare("DELETE FROM sales_purchase_invoices WHERE id = ?").run(req.params.id);
-  });
-
-  tx();
-  res.status(204).end();
-});
-
-module.exports = router;
+router.put('/:id',(req,res)=>{try{
+ const existing=db.prepare('SELECT * FROM sales_purchase_invoices WHERE id=?').get(req.params.id);if(!existing)return res.status(404).json({error:'not found'});const body=req.body;const calc=validateInvoiceBody(body);assertPeriodOpen(body.invoice_date);if(body.invoice_kind==='return'){const orig=db.prepare('SELECT * FROM sales_purchase_invoices WHERE id=?').get(body.original_invoice_id);if(!orig||orig.type!==body.type||orig.invoice_kind==='return'||normalizePersian(orig.party)!==normalizePersian(body.party))throw new Error('فاکتور اصلی برگشت معتبر نیست یا طرف حساب آن متفاوت است.');for(const it of body.items){const origLine=db.prepare('SELECT COALESCE(SUM(quantity),0) q FROM invoice_items WHERE invoice_id=? AND inventory_item_id=?').get(orig.id,it.inventory_item_id);const returned=db.prepare(`SELECT COALESCE(SUM(ii.quantity),0) q FROM invoice_items ii JOIN sales_purchase_invoices r ON r.id=ii.invoice_id WHERE r.original_invoice_id=? AND r.invoice_kind='return' AND r.id<>? AND ii.inventory_item_id=?`).get(orig.id,req.params.id,it.inventory_item_id);if(!origLine.q||Number(it.quantity)+Number(returned.q)>Number(origLine.q)+1e-9)throw new Error('مقدار برگشتی بیشتر از مقدار فاکتور اصلی است.');}}if((body.type==='sale'&&body.invoice_kind!=='return')||(body.type==='purchase'&&body.invoice_kind==='return'))assertStock(body.items);
+ const tx=db.transaction(()=>{
+  deleteInvoiceVoucher(existing.id);db.prepare('DELETE FROM invoice_items WHERE invoice_id=?').run(existing.id);db.prepare('DELETE FROM invoice_links WHERE invoice_id=?').run(existing.id);
+  db.prepare(`UPDATE sales_purchase_invoices SET type=?,party=?,invoice_date=?,bank_account_id=?,total_amount=?,description=?,invoice_kind=?,original_invoice_id=?,subtotal=?,discount_amount=?,tax_rate=?,tax_amount=? WHERE id=?`).run(body.type,body.party,body.invoice_date,body.bank_account_id||null,calc.total,body.description||'',body.invoice_kind||'normal',body.original_invoice_id||null,calc.subtotal,calc.discount,calc.taxRate,calc.tax,existing.id);
+  const ins=db.prepare('INSERT INTO invoice_items(invoice_id,inventory_item_id,quantity,unit_price,line_total) VALUES(?,?,?,?,?)');for(const it of body.items)ins.run(existing.id,it.inventory_item_id,it.quantity,it.unit_price,Number(it.quantity)*Number(it.unit_price));
+  if(body.invoice_kind==='return'&&body.original_invoice_id)db.prepare(`INSERT INTO invoice_links(invoice_id,linked_invoice_id,relation_type) VALUES(?,?,?)`).run(existing.id,body.original_invoice_id,'return_of');
+  const costs=rebuildInventory(); repostAllInvoices(costs); recomputeBankBalances();
+ });tx();res.json(getInvoiceWithItems(existing.id));
+ }catch(e){res.status(400).json({error:e.message});}});
+router.delete('/:id',(req,res)=>{try{const inv=db.prepare('SELECT * FROM sales_purchase_invoices WHERE id=?').get(req.params.id);if(!inv)return res.status(404).json({error:'not found'});assertPeriodOpen(inv.invoice_date);const tx=db.transaction(()=>{deleteInvoiceVoucher(inv.id);db.prepare('DELETE FROM sales_purchase_invoices WHERE id=?').run(inv.id);const costs=rebuildInventory();repostAllInvoices(costs);recomputeBankBalances();});tx();res.status(204).end();}catch(e){res.status(400).json({error:e.message});}});
+module.exports=router;

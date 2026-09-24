@@ -1,5 +1,7 @@
 const express = require("express");
 const db = require("../db");
+const { rebuildInventory } = require("../lib/inventoryLedger");
+const { resolveAccount, postVoucher, deleteSourceVoucher, assertPeriodOpen, money } = require("../lib/accounting");
 
 const router = express.Router();
 
@@ -42,28 +44,6 @@ router.post("/", (req, res) => {
   if (!formula_id || !run_date || !quantity || Number(quantity) <= 0) {
     return res.status(400).json({ error: "فرمول، تاریخ و تعداد تولید الزامی است." });
   }
-  
-  // Validate quantity is a positive number
-  const qty = Number(quantity);
-  if (isNaN(qty) || qty <= 0) {
-    return res.status(400).json({ error: "تعداد تولید باید یک عدد مثبت باشد." });
-  }
-  
-  // Validate component prices are non-negative
-  for (const itemId in component_prices) {
-    const price = Number(component_prices[itemId]);
-    if (isNaN(price) || price < 0) {
-      return res.status(400).json({ error: "قیمت قطعات نمی‌تواند منفی باشد." });
-    }
-  }
-  
-  // Validate service costs are non-negative
-  for (const svc of service_costs) {
-    const cost = Number(svc.cost);
-    if (isNaN(cost) || cost < 0) {
-      return res.status(400).json({ error: "هزینه خدمات نمی‌تواند منفی باشد." });
-    }
-  }
 
   const formula = db.prepare("SELECT * FROM production_formulas WHERE id = ?").get(formula_id);
   if (!formula) return res.status(400).json({ error: "فرمول یافت نشد." });
@@ -75,16 +55,16 @@ router.post("/", (req, res) => {
       const needs = components.map((c) => {
         const node = db.prepare("SELECT * FROM inventory_nodes WHERE id = ?").get(c.item_id);
         const neededQty = c.quantity * Number(quantity);
-        const price = Number(component_prices[c.item_id]) || node.avg_cost || 0;
+        const supplied = component_prices[c.item_id]; const price = supplied === undefined || supplied === '' ? Number(node.avg_cost || 0) : money(supplied, 'بهای واحد مواد');
         if (neededQty > node.qty_on_hand) {
           throw new Error(`موجودی «${node.name}» کافی نیست (لازم: ${neededQty}, موجود: ${node.qty_on_hand} ${node.unit || ""}).`);
         }
-        return { item_id: c.item_id, name: node.name, unit: node.unit, quantity: neededQty, unit_price: price, line_total: neededQty * price };
+        return { item_id: c.item_id, name: node.name, unit: node.unit, quantity: neededQty, unit_price: price, line_total: Math.round(neededQty * price) };
       });
 
       const componentsCost = needs.reduce((s, n) => s + n.line_total, 0);
-      const servicesCost = service_costs.reduce((s, sv) => s + (Number(sv.cost) || 0), 0);
-      const totalCost = componentsCost + servicesCost;
+      const servicesCost = service_costs.reduce((s, sv) => s + money(sv.cost || 0, 'هزینه خدمات تولید'), 0);
+      const totalCost = Math.round(componentsCost + servicesCost);
       const unitCost = totalCost / Number(quantity);
 
       for (const n of needs) {
@@ -114,6 +94,15 @@ router.post("/", (req, res) => {
       const insertSvc = db.prepare("INSERT INTO production_run_services (run_id, name, cost) VALUES (?, ?, ?)");
       for (const sv of service_costs) insertSvc.run(runId, sv.name, Number(sv.cost) || 0);
 
+      rebuildInventory();
+      const settings = db.prepare('SELECT * FROM accounting_settings WHERE id=1').get() || {};
+      const outputAccount = resolveAccount(settings.inventory_account_id, '1701', 'موجودی کالای تولیدی');
+      const componentAccount = resolveAccount(settings.inventory_account_id, '1701', 'موجودی مواد');
+      const serviceAccount = resolveAccount(settings.other_payable_account_id, '3301', 'بستانکار خدمات تولید');
+      const lines = [{account_id: outputAccount, debit: totalCost, credit: 0}];
+      for (const n of needs) lines.push({account_id: componentAccount, debit: 0, credit: n.line_total});
+      if (servicesCost > 0) lines.push({account_id: serviceAccount, debit: 0, credit: servicesCost});
+      postVoucher({date: run_date, description: `تولید شماره ${runId} — ${formula.name}`, sourceType: 'production_run', sourceId: runId, lines});
       return runId;
     });
 
@@ -124,32 +113,17 @@ router.post("/", (req, res) => {
   }
 });
 
-// Reverses quantities only (adds components back, removes produced output)
-// — does NOT undo the avg_cost blend it caused, for the same reason
-// purchase invoices don't: reversing a historical weighted-average blend
-// after the fact isn't generally sound. Runs also can't be edited, only
-// deleted and re-entered, to keep this logic honest and simple.
+// Production runs are source events for inventory and accounting. Deleting a run
+// removes its source voucher and rebuilds the inventory ledger from history.
 router.delete("/:id", (req, res) => {
   const run = db.prepare("SELECT * FROM production_runs WHERE id = ?").get(req.params.id);
   if (!run) return res.status(404).json({ error: "not found" });
-  
   const components = db.prepare("SELECT * FROM production_run_components WHERE run_id = ?").all(req.params.id);
   const formula = run.formula_id ? db.prepare("SELECT * FROM production_formulas WHERE id = ?").get(run.formula_id) : null;
 
-  try {
-    const tx = db.transaction(() => {
-      // Check if output item has sufficient quantity to deduct before reversing
-      if (formula) {
-        const outputNode = db.prepare("SELECT name, qty_on_hand, unit FROM inventory_nodes WHERE id = ?").get(formula.output_item_id);
-        if (outputNode && run.quantity > outputNode.qty_on_hand) {
-          throw new Error(
-            `نمی‌توان این فرایند تولید را حذف کرد — موجودی کالای تولیدی «${outputNode.name}» کافی نیست ` +
-            `(لازم: ${run.quantity}, موجود: ${outputNode.qty_on_hand} ${outputNode.unit || ""}).`
-          );
-        }
-      }
-      
-      // Reverse the production: add components back, remove output
+  assertPeriodOpen(run.run_date);
+  const tx = db.transaction(() => {
+    deleteSourceVoucher('production_run', run.id);
     for (const c of components) {
       db.prepare("UPDATE inventory_nodes SET qty_on_hand = qty_on_hand + ? WHERE id = ?").run(c.quantity, c.item_id);
     }
@@ -157,13 +131,11 @@ router.delete("/:id", (req, res) => {
       db.prepare("UPDATE inventory_nodes SET qty_on_hand = qty_on_hand - ? WHERE id = ?").run(run.quantity, formula.output_item_id);
     }
     db.prepare("DELETE FROM production_runs WHERE id = ?").run(req.params.id);
+    rebuildInventory();
   });
 
   tx();
-    res.status(204).end();
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  res.status(204).end();
 });
 
 module.exports = router;

@@ -210,20 +210,24 @@ router.put("/items/:id", (req, res) => {
   if (!name || !name.trim()) return res.status(400).json({ error: "نام کالا الزامی است." });
   const node = db.prepare("SELECT * FROM inventory_nodes WHERE id = ? AND level = 3").get(req.params.id);
   if (!node) return res.status(404).json({ error: "not found" });
+  if (qty_on_hand !== undefined && Number(qty_on_hand) !== Number(node.qty_on_hand)) return res.status(400).json({ error: "موجودی مستقیم قابل ویرایش نیست؛ از فاکتور یا تعدیل انبار استفاده کنید." });
+  if (!Number.isFinite(Number(min_qty)) || Number(min_qty) < 0) return res.status(400).json({ error: "حداقل موجودی نامعتبر است." });
   db.prepare(
     `UPDATE inventory_nodes
      SET name = @name, name_normalized = @name_normalized, unit = @unit,
-         warehouse_id = @warehouse_id, min_qty = @min_qty, qty_on_hand = @qty_on_hand
+         warehouse_id = @warehouse_id, min_qty = @min_qty
      WHERE id = @id`
   ).run({
     name: name.trim(), name_normalized: normalizePersian(name), unit,
-    warehouse_id: warehouse_id || null, min_qty, qty_on_hand, id: req.params.id,
+    warehouse_id: warehouse_id || null, min_qty: Number(min_qty), id: req.params.id,
   });
   res.json(db.prepare("SELECT * FROM inventory_nodes WHERE id = ?").get(req.params.id));
 });
 
 router.delete("/items/:id", (req, res) => {
   try {
+    const used = db.prepare("SELECT COUNT(*) c FROM inventory_ledger WHERE item_id=?").get(req.params.id).c;
+    if (used > 0) return res.status(400).json({ error: "این کالا دارای گردش انبار است و قابل حذف نیست." });
     db.prepare("DELETE FROM inventory_nodes WHERE id = ? AND level = 3").run(req.params.id);
     res.status(204).end();
   } catch (err) {

@@ -1,7 +1,7 @@
 {
   "name": "accounting-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.0.0",
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",

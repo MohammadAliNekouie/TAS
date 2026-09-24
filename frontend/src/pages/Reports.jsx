@@ -182,11 +182,19 @@ function BalanceSheetTab() {
   );
 }
 
+function LedgerTab(){const [rows,setRows]=useState(null);useEffect(()=>{api.ledger().then(setRows)},[]);if(!rows)return <div>در حال بارگذاری...</div>;return <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}><thead><tr style={{background:'var(--bg)',textAlign:'right'}}><th style={{padding:10}}>تاریخ</th><th>سند</th><th>کد</th><th>حساب</th><th>بدهکار</th><th>بستانکار</th><th>شرح</th></tr></thead><tbody>{rows.map(r=><tr key={r.line_id} style={{borderTop:'1px solid var(--border)'}}><td style={{padding:10}}>{r.voucher_date}</td><td>#{r.voucher_id}</td><td>{r.code}</td><td>{r.name}</td><td>{r.debit?rial(r.debit):'—'}</td><td>{r.credit?rial(r.credit):'—'}</td><td>{r.line_description||r.description}</td></tr>)}</tbody></table></div>}
+function CashFlowTab(){const [rows,setRows]=useState(null);useEffect(()=>{api.cashFlow().then(setRows)},[]);if(!rows)return <div>در حال بارگذاری...</div>;return <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}><thead><tr style={{background:'var(--bg)',textAlign:'right'}}><th style={{padding:12}}>کد</th><th>حساب</th><th>بدهکار</th><th>بستانکار</th><th>خالص</th></tr></thead><tbody>{rows.map(r=><tr key={r.code} style={{borderTop:'1px solid var(--border)'}}><td style={{padding:12}}>{r.code}</td><td>{r.name}</td><td>{rial(r.debit)}</td><td>{rial(r.credit)}</td><td>{rial(r.net)}</td></tr>)}</tbody></table></div>}
+
+function GrossProfitTab(){const [rows,setRows]=useState(null);useEffect(()=>{api.grossProfit().then(setRows)},[]);if(!rows)return <div>در حال بارگذاری...</div>;const total=rows.reduce((s,r)=>s+r.gross_profit,0);return <div><div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}><thead><tr style={{background:'var(--bg)',textAlign:'right'}}><th style={{padding:10}}>فاکتور</th><th>تاریخ</th><th>طرف حساب</th><th>درآمد خالص</th><th>COGS</th><th>سود ناخالص</th></tr></thead><tbody>{rows.map(r=><tr key={r.id} style={{borderTop:'1px solid var(--border)'}}><td style={{padding:10}}>#{r.id}</td><td>{r.invoice_date}</td><td>{r.party}</td><td>{rial(r.revenue)}</td><td>{rial(r.cogs)}</td><td>{rial(r.gross_profit)}</td></tr>)}</tbody><tfoot><tr style={{borderTop:'2px solid var(--border)',fontWeight:700}}><td colSpan={5} style={{padding:10}}>جمع سود ناخالص</td><td>{rial(total)}</td></tr></tfoot></table></div></div>}
+
 const TABS = [
   { key: "summary", label: "خلاصه" },
   { key: "trial-balance", label: "تراز آزمایشی" },
   { key: "income-statement", label: "صورت سود و زیان" },
   { key: "balance-sheet", label: "ترازنامه" },
+  { key: "ledger", label: "دفتر کل" },
+  { key: "gross-profit", label: "سود ناخالص" },
+  { key: "cash-flow", label: "جریان نقدی" },
 ];
 
 export default function Reports() {
@@ -222,6 +230,9 @@ export default function Reports() {
       {tab === "trial-balance" && <TrialBalanceTab />}
       {tab === "income-statement" && <IncomeStatementTab />}
       {tab === "balance-sheet" && <BalanceSheetTab />}
+      {tab === "ledger" && <LedgerTab />}
+      {tab === "gross-profit" && <GrossProfitTab />}
+      {tab === "cash-flow" && <CashFlowTab />}
     </div>
   );
 }

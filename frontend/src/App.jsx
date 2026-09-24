@@ -21,6 +21,9 @@ import Users from "./pages/Users.jsx";
 import ProductionFormulas from "./pages/ProductionFormulas.jsx";
 import ProductionRuns from "./pages/ProductionRuns.jsx";
 import StockAdjustments from "./pages/StockAdjustments.jsx";
+import FinancialPeriods from "./pages/FinancialPeriods.jsx";
+import AuditLog from "./pages/AuditLog.jsx";
+import AppErrorBoundary from "./components/AppErrorBoundary.jsx";
 
 export default function App() {
   return (
@@ -50,6 +53,8 @@ export default function App() {
         <Route path="/parties" element={<Parties />} />
         <Route path="/chart-of-accounts" element={<ChartOfAccounts />} />
         <Route path="/journal-vouchers" element={<JournalVouchers />} />
+        <Route path="/financial-periods" element={<AppErrorBoundary><FinancialPeriods /></AppErrorBoundary>} />
+        <Route path="/audit-log" element={<AuditLog />} />
         <Route path="/users" element={<Users />} />
       </Route>
     </Routes>
