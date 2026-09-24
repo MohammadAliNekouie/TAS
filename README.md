@@ -1,343 +1,1112 @@
-# تاس — نرم‌افزار حسابداری (Persian RTL Accounting App)
+# TAS — سامانه حسابداری و مدیریت مالی فارسی
 
-نسخه 2.0.0: React (RTL, Farsi) frontend + Node/Express + SQLite backend با چرخه یکپارچه خرید/فروش، خزانه، انبار و حسابداری دوطرفه.
+**TAS** یک نرم‌افزار حسابداری و مدیریت مالی فارسی، راست‌به‌چپ و قابل‌استقرار روی سرور شخصی است که با هدف ارائه یک هسته مدرن، قابل توسعه و قابل سفارشی‌سازی برای کسب‌وکارهای ایرانی ساخته شده است.
 
-## What's in every section
+این پروژه یک برنامه وب کامل است:
 
-- **داشبورد (Dashboard)** — live KPIs, sales trend chart (7/30 day toggle), recent events, low-stock alerts, cheques due, and a grouped quick-access menu to every module — all served from the backend API.
-- **انبارداری (Warehouse)** — the 3-level inventory coding scheme: category tree browser + combined search by ID, code, or any part of the item name.
-- **خرید و فروش, دریافت و پرداخت, مدیریت چک, تنخواه‌گردان, حسابداری چند ارزی, مدیریت تولید, سامانه مودیان** — each is a full CRUD module: a table of records plus an "افزودن جدید" (add new) button that opens a form, an edit (pencil) icon per row, and a delete (trash) icon per row with an inline confirm. All seven share one generic component (`frontend/src/components/CrudModule.jsx`) and one generic backend route factory (`backend/lib/crud.js`) — each module is just a small field/column config, which also makes them easy to extend later (add a field, add a validation rule, etc.) in one place.
-- **گزارش‌گیری (Reports)** — deliberately **read-only**: it aggregates totals (sales vs. purchases, receipts vs. payments, petty cash balance, outstanding cheques, etc.) computed live from the other modules' data, since reports by nature summarize what's entered elsewhere rather than being their own data-entry point.
+- **Frontend:** React + Vite
+- **Backend:** Node.js + Express
+- **Database:** SQLite با `better-sqlite3`
+- **رابط کاربری:** فارسی، RTL و مناسب استفاده دسکتاپ
+- **تاریخ:** پشتیبانی از تقویم و تاریخ جلالی در رابط کاربری
+- **ارز عملیاتی:** ریال
+- **احراز هویت:** JWT در Cookie از نوع `HttpOnly`
+- **استقرار:** قابل اجرا به‌صورت توسعه‌ای یا به‌صورت یک سرور واحد در شبکه داخلی، سرور شخصی یا VPS
 
-## Editing the sample/demo data
+> **وضعیت پروژه:** TAS در حال توسعه است و معماری و ماژول‌های اصلی آن برای توسعه بیشتر طراحی شده‌اند. پیش از استفاده در محیط مالی واقعی، نصب، پشتیبان‌گیری، امنیت، سناریوهای حسابداری و الزامات قانونی سازمان خود را جداگانه بررسی و آزمایش کنید.
 
-The database seeds category-tree inventory data, sample events, and sample cheques on first run so the dashboard isn't empty. The other CRUD modules start empty — use the "افزودن جدید" button in each to add your own records.
+---
 
-## Invoices, inventory items, bank accounts, and automatic accounting entries
+## فهرست مطالب
 
-**خرید و فروش (Sales & Purchase)** is no longer a flat CRUD table — each invoice has a header (type, party, date, bank account) plus multiple line items, and each line item points at a real inventory item:
+- [ویژگی‌ها](#ویژگیها)
+- [اجزای سیستم](#اجزای-سیستم)
+- [معماری](#معماری)
+- [ساختار پروژه](#ساختار-پروژه)
+- [پیش‌نیازها](#پیشنیازها)
+- [نصب در ویندوز](#نصب-در-ویندوز)
+- [نصب در لینوکس](#نصب-در-لینوکس)
+- [اجرای محیط توسعه](#اجرای-محیط-توسعه)
+- [اجرای نسخه Build شده](#اجرای-نسخه-build-شده)
+- [تنظیمات محیطی](#تنظیمات-محیطی)
+- [ورود و کاربران](#ورود-و-کاربران)
+- [داده و پایگاه داده](#داده-و-پایگاه-داده)
+- [ماژول‌های نرم‌افزار](#ماژولهای-نرم‌افزار)
+- [حسابداری و دفتر کل](#حسابداری-و-دفتر-کل)
+- [انبار و بهای تمام‌شده](#انبار-و-بهای-تمامشده)
+- [پشتیبان‌گیری و بازیابی](#پشتیبانگیری-و-بازیابی)
+- [استقرار روی سرور](#استقرار-روی-سرور)
+- [توسعه‌دهندگان](#توسعهدهندگان)
+- [مشارکت](#مشارکت)
+- [مجوز](#مجوز)
 
-- While adding invoice lines, typing into the item search box hits the same ID/code/name search built for انبارداری. If the item you need doesn't exist yet, a **"+ تعریف کالای جدید در انبار"** option appears right there in the dropdown — it opens a small form (category, name, unit, warehouse, starting stock), creates the item in the inventory table on the spot, and drops it straight into the invoice row. No need to leave the invoice form.
-- فاکتورهای خرید/فروش با تخفیف، مالیات و برگشت ثبت می‌شوند و سند دوطرفهٔ خودکار در `journal_vouchers`/`journal_voucher_lines` ساخته می‌شود. موجودی بانک از رویدادهای مالی دوباره محاسبه می‌شود تا با اسناد دوباره‌شماری نشود.
+---
 
-**تنظیمات اولیه (Settings)**, new page reachable from the bottom of the sidebar:
-- **Company info** — legal name, شناسه ملی, کد اقتصادی, address, phone. Single record, one save button.
-- **Bank accounts** — name, bank name, شبا (IBAN), and an initial balance (set once at creation). After creation, the balance only ever changes through invoices/journal entries, never a direct edit — this keeps the ledger trustworthy. You'll want to define at least one bank account here before creating invoices that should post accounting entries.
+## ویژگی‌ها
 
-## Light / dark theme
+TAS مجموعه‌ای از قابلیت‌های زیر را در یک محیط یکپارچه ارائه می‌کند:
 
-A sun/moon toggle sits at the top of the sidebar. The whole app is built on CSS custom properties (`--bg`, `--surface`, `--ink`, `--teal`, etc., defined in `frontend/src/index.css`), so every page follows the toggle automatically — no per-page theme logic. The choice is remembered in the browser (`localStorage`) and defaults to the OS-level light/dark preference on first visit.
+### مالی و حسابداری
 
-## Requirements
+- کدینگ حسابداری سه‌سطحی
+- گروه‌های اصلی، گروه‌های کل و حساب‌های معین
+- ثبت اسناد حسابداری دوطرفه
+- کنترل تراز بدهکار و بستانکار
+- دفتر کل و گزارش‌های مالی
+- دوره‌های مالی
+- کنترل وضعیت دوره باز/بسته
+- ثبت رویدادهای سیستمی در Audit Log
+- تنظیمات اتصال عملیات تجاری به حساب‌های حسابداری
+- پشتیبانی از حساب‌های بانکی مستقل
 
-- Node.js 18 or newer
-- npm
+### خرید و فروش
 
-## Run locally (development)
+- ثبت فاکتور خرید
+- ثبت فاکتور فروش
+- چند قلم کالا در هر فاکتور
+- انتخاب کالا بر اساس شناسه، کد یا نام
+- تخفیف و مالیات
+- برگشت خرید و فروش
+- اتصال فاکتور به طرف حساب
+- اتصال فاکتور به حساب بانکی
+- ایجاد/به‌روزرسانی آثار حسابداری مرتبط با فاکتور
+
+### خزانه و نقدینگی
+
+- دریافت‌ها
+- پرداخت‌ها
+- مدیریت چک
+- شناسه صیاد
+- ثبت واگذاری/ظهرنویسی چک
+- تنخواه‌گردان
+- حساب‌های بانکی
+- مدیریت گردش‌های مالی
+
+### انبار
+
+- دسته‌بندی و ساختار درختی کالا
+- کدگذاری کالا
+- جست‌وجوی کالا
+- انبار و محل نگهداری
+- کنترل موجودی
+- تعدیلات موجودی
+- دفتر گردش موجودی (`Inventory Ledger`)
+- محاسبه بهای میانگین متحرک
+- محاسبه بهای تمام‌شده کالای فروش‌رفته (COGS)
+
+### تولید
+
+- فرمول‌های تولید / BOM
+- مدیریت عملیات تولید
+- ثبت اجرای تولید
+- مصرف مواد اولیه
+- تولید محصول
+- اتصال رویدادهای تولید به موجودی
+
+### طرف حساب‌ها
+
+- مشتریان
+- فروشندگان
+- اشخاص و طرف حساب‌ها
+- مشاهده گردش مرتبط با طرف حساب
+
+### چندارزی
+
+- ثبت نرخ ارز
+- عملیات مرتبط با ارزهای مختلف
+- مدیریت داده‌های نرخ ارز
+
+### سامانه مودیان
+
+- مدیریت اطلاعات و وضعیت‌های مرتبط با مودیان
+- یادآوری‌های مرتبط با ارسال/پیگیری
+- ساختار مستقل برای توسعه اتصال واقعی به سرویس‌های مالیاتی
+
+> اتصال برخط و احراز هویت واقعی سامانه مودیان به اطلاعات و دسترسی‌های قانونی و عملیاتی خارج از خود نرم‌افزار وابسته است.
+
+### گزارش‌ها
+
+- داشبورد مدیریتی
+- تراز آزمایشی
+- صورت سود و زیان
+- ترازنامه
+- سود ناخالص
+- گردش نقدی
+- گردش طرف حساب
+- گردش موجودی
+- اطلاعات چک‌ها و سررسیدها
+- هشدار موجودی کم
+
+### مدیریت سیستم
+
+- کاربران و نقش‌ها
+- نقش مدیر سیستم
+- نقش حسابدار
+- نقش مشاهده‌گر
+- تنظیمات شرکت
+- تنظیمات حسابداری
+- حساب‌های بانکی
+- دوره‌های مالی
+- گزارش Audit Log
+- Backup / Restore
+- پاک‌سازی داده‌های مالی
+- ثبت خطاهای Backend برای عیب‌یابی
+
+---
+
+## اجزای سیستم
+
+TAS از دو بخش اصلی تشکیل شده است:
+
+### 1. Frontend
+
+رابط کاربری نرم‌افزار در مسیر:
+
+```text
+frontend/
+```
+
+فناوری‌های اصلی:
+
+- React 18
+- React Router
+- Vite
+- Recharts
+- Lucide React
+- React Multi Date Picker
+- PWA Plugin
+
+وظیفه Frontend:
+
+- نمایش داشبورد
+- فرم‌های ورود اطلاعات
+- جست‌وجو و فیلتر
+- گزارش‌ها
+- مدیریت کاربران
+- نمایش وضعیت موجودی و حساب‌ها
+- ارتباط با REST API
+- مدیریت رابط کاربری فارسی و RTL
+
+### 2. Backend
+
+منطق سمت سرور در مسیر:
+
+```text
+backend/
+```
+
+فناوری‌های اصلی:
+
+- Node.js
+- Express
+- SQLite
+- better-sqlite3
+- JWT
+- bcryptjs
+- ExcelJS
+- CORS
+- Multer
+
+وظایف Backend:
+
+- احراز هویت
+- کنترل دسترسی
+- اجرای قوانین تجاری
+- ثبت و بازیابی اطلاعات
+- تراکنش‌های پایگاه داده
+- حسابداری و دفتر کل
+- انبار و بهای تمام‌شده
+- گزارش‌گیری
+- Backup / Restore
+- APIهای مورد استفاده Frontend
+
+---
+
+## معماری
+
+معماری کلی TAS به شکل زیر است:
+
+```text
+┌─────────────────────────────┐
+│       Browser / PWA         │
+│     React + Vite + RTL      │
+└──────────────┬──────────────┘
+               │ HTTP / REST API
+               ▼
+┌─────────────────────────────┐
+│       Node.js / Express     │
+│ Authentication / Roles      │
+│ Accounting / Inventory      │
+│ Sales / Purchase / Treasury │
+│ Production / Reports        │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│          SQLite             │
+│     better-sqlite3          │
+└─────────────────────────────┘
+```
+
+این معماری باعث می‌شود Frontend و Backend از یکدیگر جدا باشند و در آینده بتوان:
+
+- Frontend موبایل اضافه کرد
+- API عمومی ساخت
+- Backend را توسعه داد
+- SQLite را برای استقرارهای بزرگ‌تر با PostgreSQL جایگزین کرد
+- ماژول‌های جدید به سیستم اضافه کرد
+
+---
+
+## ساختار پروژه
+
+ساختار اصلی پروژه:
+
+```text
+accounting-app/
+│
+├── backend/
+│   ├── server.js
+│   ├── db.js
+│   ├── schema.sql
+│   ├── seed.js
+│   │
+│   ├── lib/
+│   │   ├── accounting.js
+│   │   ├── auth.js
+│   │   ├── authMiddleware.js
+│   │   ├── crud.js
+│   │   ├── inventoryLedger.js
+│   │   ├── migrations.js
+│   │   ├── jalali.js
+│   │   ├── persian.js
+│   │   ├── exchangeRates.js
+│   │   └── ...
+│   │
+│   └── routes/
+│       ├── dashboard.js
+│       ├── inventory.js
+│       ├── sales-purchase.js
+│       ├── receipts-payments.js
+│       ├── cheques.js
+│       ├── petty-cash.js
+│       ├── production.js
+│       ├── production-formulas.js
+│       ├── production-runs.js
+│       ├── modayan.js
+│       ├── reports.js
+│       ├── chart-of-accounts.js
+│       ├── journal-vouchers.js
+│       ├── financial-periods.js
+│       ├── audit-log.js
+│       ├── backup.js
+│       └── ...
+│
+├── frontend/
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── public/
+│   └── src/
+│       ├── App.jsx
+│       ├── main.jsx
+│       ├── index.css
+│       ├── components/
+│       ├── layout/
+│       └── pages/
+│
+├── package.json
+├── CHANGELOG-1.0.0.md
+├── CHANGELOG-2.0.0.md
+└── README.md
+```
+
+---
+
+## پیش‌نیازها
+
+### حداقل پیش‌نیاز
+
+- **Node.js نسخه 18 یا بالاتر**
+- **npm**
+- مرورگر مدرن مانند:
+  - Google Chrome
+  - Microsoft Edge
+  - Firefox
+
+SQLite به‌صورت داخلی توسط `better-sqlite3` استفاده می‌شود و برای اجرای عادی برنامه نیازی به نصب جداگانه SQLite Server ندارید.
+
+### بررسی نصب Node.js
+
+```bash
+node --version
+npm --version
+```
+
+اگر نسخه Node.js کمتر از 18 است، ابتدا Node.js را به نسخه جدیدتر ارتقا دهید.
+
+> برای محیط تولید پیشنهاد می‌شود از یک نسخه LTS پشتیبانی‌شده Node.js استفاده کنید.
+
+---
+
+# نصب در ویندوز
+
+## 1. نصب Node.js
+
+Node.js را از وب‌سایت رسمی آن نصب کنید:
+
+https://nodejs.org/
+
+پس از نصب، PowerShell یا Command Prompt جدید باز کنید و بررسی کنید:
+
+```powershell
+node --version
+npm --version
+```
+
+---
+
+## 2. دریافت پروژه
+
+اگر پروژه را با Git دریافت می‌کنید:
+
+```powershell
+git clone <REPOSITORY-URL>
+cd accounting-app
+```
+
+یا فایل ZIP پروژه را استخراج کرده و وارد پوشه آن شوید:
+
+```powershell
+cd accounting-app
+```
+
+---
+
+## 3. نصب وابستگی‌ها
+
+از ریشه پروژه اجرا کنید:
+
+```powershell
+npm run install:all
+```
+
+این دستور وابستگی‌های Backend و Frontend را نصب می‌کند.
+
+---
+
+## 4. اجرای برنامه در حالت توسعه
+
+```powershell
+npm run dev
+```
+
+به‌صورت پیش‌فرض:
+
+- Backend: `http://localhost:4000`
+- Frontend: `http://localhost:5173`
+
+مرورگر را باز کرده و به آدرس زیر بروید:
+
+```text
+http://localhost:5173
+```
+
+---
+
+# نصب در لینوکس
+
+## Ubuntu / Debian
+
+ابتدا Node.js و npm را نصب کنید. برای محیط‌های توسعه و تولید، استفاده از Node.js LTS توصیه می‌شود.
+
+در سیستم‌هایی که مخزن رسمی Node.js نسخه موردنظر را فراهم می‌کند:
+
+```bash
+sudo apt update
+sudo apt install -y nodejs npm
+```
+
+سپس نسخه‌ها را بررسی کنید:
+
+```bash
+node --version
+npm --version
+```
+
+اگر نسخه Node.js قدیمی است، از روش نصب Node.js LTS مناسب توزیع خود استفاده کنید.
+
+---
+
+## دریافت پروژه
+
+با Git:
+
+```bash
+git clone <REPOSITORY-URL>
+cd accounting-app
+```
+
+یا ZIP پروژه را استخراج کنید:
 
 ```bash
 cd accounting-app
-npm run install:all   # installs backend and frontend dependencies
-npm run dev            # runs backend on :4000 and frontend on :5173 together
 ```
 
-Open http://localhost:5173 in your browser. The database is created automatically at `backend/data/accounting.db` and seeded with sample data on first run.
+---
 
-## Run as a single server (production-style, for local server or VPS)
+## نصب وابستگی‌ها
 
 ```bash
 npm run install:all
-npm run build          # builds the React app into frontend/dist
-npm run start           # starts the Express server on :4000, serving the built frontend too
 ```
 
-Then open http://localhost:4000 (or `http://<your-server-ip>:4000` from another device on the network / VPS).
+---
 
-To keep it running persistently on a VPS, use a process manager, e.g.:
+## اجرای توسعه
+
+```bash
+npm run dev
+```
+
+سپس:
+
+```text
+http://localhost:5173
+```
+
+را در مرورگر باز کنید.
+
+---
+
+# اجرای محیط توسعه
+
+برای توسعه روزمره:
+
+```bash
+npm run dev
+```
+
+این دستور Backend و Frontend را هم‌زمان اجرا می‌کند.
+
+اگر ترجیح می‌دهید هر بخش را جداگانه اجرا کنید:
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+Backend روی پورت پیش‌فرض `4000` اجرا می‌شود.
+
+### Frontend
+
+در ترمینال دوم:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend با Vite اجرا می‌شود و به Backend متصل خواهد شد.
+
+---
+
+# اجرای نسخه Build شده
+
+برای ساخت نسخه Production از Frontend:
+
+```bash
+npm run build
+```
+
+سپس Backend را اجرا کنید:
+
+```bash
+npm run start
+```
+
+در این حالت Express فایل‌های ساخته‌شده Frontend را نیز سرو می‌کند.
+
+آدرس پیش‌فرض:
+
+```text
+http://localhost:4000
+```
+
+در یک سرور داخل شبکه می‌توانید از IP سرور استفاده کنید:
+
+```text
+http://SERVER-IP:4000
+```
+
+---
+
+# تنظیمات محیطی
+
+TAS از متغیرهای محیطی زیر پشتیبانی می‌کند:
+
+| متغیر | کاربرد | پیش‌فرض |
+|---|---|---|
+| `PORT` | پورت Backend | `4000` |
+| `NODE_ENV` | محیط اجرا | — |
+| `JWT_SECRET` | کلید امضای JWT | بهتر است در Production تنظیم شود |
+| `CORS_ORIGIN` | مبدأهای مجاز Frontend | `http://localhost:5173,http://127.0.0.1:5173` |
+| `EXCHANGE_RATE_API_URL` | منبع اختیاری نرخ ارز | — |
+
+## نمونه در Linux
+
+```bash
+export NODE_ENV=production
+export PORT=4000
+export JWT_SECRET='CHANGE_THIS_TO_A_LONG_RANDOM_SECRET'
+export CORS_ORIGIN='https://accounting.example.com'
+npm run start
+```
+
+## نمونه در PowerShell ویندوز
+
+```powershell
+$env:NODE_ENV="production"
+$env:PORT="4000"
+$env:JWT_SECRET="CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+$env:CORS_ORIGIN="http://localhost:5173"
+npm run start
+```
+
+> در محیط واقعی، `JWT_SECRET` را قوی، تصادفی و خصوصی نگه دارید و آن را داخل Git commit نکنید.
+
+---
+
+# ورود و کاربران
+
+در اولین اجرای پایگاه داده، اطلاعات اولیه توسط Seed/Database Initialization ایجاد می‌شود.
+
+حساب کاربری اولیه و نحوه ایجاد/مدیریت کاربران را می‌توان از بخش **کاربران و دسترسی** مدیریت کرد.
+
+نقش‌های اصلی سیستم:
+
+### مدیر سیستم — `admin`
+
+دسترسی کامل، شامل قابلیت‌های مدیریتی مانند:
+
+- کاربران
+- تنظیمات
+- Backup / Restore
+- پاک‌سازی داده‌ها
+- Audit Log
+
+### حسابدار — `accountant`
+
+برای عملیات روزمره مالی و حسابداری.
+
+### مشاهده‌گر — `viewer`
+
+دسترسی خواندنی؛ عملیات تغییردهنده داده در Backend برای این نقش مسدود می‌شود.
+
+> برای محیط Production حتماً رمز حساب‌های اولیه را تغییر دهید و حساب‌های بلااستفاده را غیرفعال/حذف کنید.
+
+---
+
+# داده و پایگاه داده
+
+پایگاه داده پیش‌فرض در این مسیر ساخته می‌شود:
+
+```text
+backend/data/accounting.db
+```
+
+TAS از SQLite استفاده می‌کند و ساختار دیتابیس در:
+
+```text
+backend/schema.sql
+```
+
+تعریف شده است.
+
+سیستم در زمان راه‌اندازی، Migrationهای لازم را نیز بررسی و اعمال می‌کند.
+
+برای بازنشانی محیط نمونه می‌توانید دیتابیس توسعه را حذف کرده و Backend را دوباره اجرا کنید:
+
+```text
+backend/data/accounting.db
+```
+
+> این کار تمام داده‌های همان دیتابیس را حذف می‌کند. قبل از انجام آن در محیط واقعی، حتماً Backup بگیرید.
+
+---
+
+# ماژول‌های نرم‌افزار
+
+ماژول‌های اصلی موجود در رابط کاربری:
+
+| ماژول | توضیح |
+|---|---|
+| داشبورد | شاخص‌های مدیریتی، رویدادهای اخیر، هشدار موجودی و اطلاعات عملیاتی |
+| انبارداری | کالا، دسته‌بندی، کد کالا، موجودی و جست‌وجو |
+| خرید و فروش | فاکتورهای خرید و فروش و اقلام فاکتور |
+| دریافت و پرداخت | ثبت عملیات دریافت و پرداخت |
+| چک‌ها | مدیریت چک، سررسید، صیاد و واگذاری |
+| تنخواه | مدیریت عملیات تنخواه |
+| چندارزی | نرخ ارز و عملیات چندارزی |
+| تولید | عملیات تولید |
+| فرمول‌های تولید | تعریف فرمول/BOM |
+| اجرای تولید | ثبت اجرای فرایند تولید |
+| تعدیلات انبار | ثبت تعدیلات موجودی |
+| طرف حساب‌ها | مشتری، فروشنده و اشخاص |
+| کدینگ حسابداری | مدیریت ساختار حساب‌ها |
+| اسناد حسابداری | ثبت اسناد دوطرفه |
+| گزارش‌ها | گزارش‌های مدیریتی و مالی |
+| دوره‌های مالی | مدیریت دوره‌های مالی |
+| Audit Log | ثبت رویدادهای تغییر‌دهنده سیستم |
+| مودیان | مدیریت اطلاعات و وضعیت‌های مرتبط |
+| تنظیمات | شرکت، حسابداری و حساب‌های بانکی |
+| کاربران و دسترسی | مدیریت کاربران و نقش‌ها |
+
+---
+
+# حسابداری و دفتر کل
+
+هسته حسابداری TAS بر پایه ثبت دوطرفه طراحی شده است.
+
+ساختار اصلی شامل:
+
+```text
+گروه اصلی
+    └── گروه کل
+          └── حساب معین
+```
+
+اسناد حسابداری در جداول:
+
+```text
+journal_vouchers
+journal_voucher_lines
+```
+
+نگهداری می‌شوند.
+
+هر سند باید از نظر بدهکار و بستانکار تراز باشد.
+
+در تنظیمات حسابداری می‌توان حساب‌های پیش‌فرض مورد استفاده عملیات تجاری را تعیین کرد؛ از جمله حساب‌هایی مانند:
+
+- فروش
+- بهای تمام‌شده
+- موجودی کالا
+- دریافتنی
+- پرداختنی
+
+همچنین حساب‌های بانکی می‌توانند به حساب معین مربوط به خود متصل شوند.
+
+---
+
+# انبار و بهای تمام‌شده
+
+TAS برای مدیریت موجودی از یک دفتر گردش انبار استفاده می‌کند:
+
+```text
+inventory_ledger
+```
+
+این دفتر رویدادهای ورودی و خروجی کالا را نگهداری می‌کند و مبنای بازسازی موجودی و میانگین متحرک قرار می‌گیرد.
+
+فرآیند کلی:
+
+```text
+خرید
+  ↓
+ورود کالا
+  ↓
+محاسبه Moving Average
+  ↓
+فروش
+  ↓
+محاسبه COGS
+  ↓
+خروج کالا
+```
+
+در نتیجه تغییرات تاریخی خرید/موجودی می‌تواند باعث بازسازی محاسبات مرتبط با موجودی و بهای تمام‌شده شود.
+
+---
+
+# پشتیبان‌گیری و بازیابی
+
+بخش Backup/Restore از داخل نرم‌افزار در دسترس مدیر سیستم است.
+
+Backup به‌صورت فایل Excel شامل داده‌های جداول پایگاه داده تولید می‌شود.
+
+Restore عملیات جایگزینی داده‌ها را انجام می‌دهد و برای عملیات مخرب، تأیید کاربر در رابط کاربری در نظر گرفته شده است.
+
+فرمت Backup مورد استفاده برنامه:
+
+```text
+.xlsx
+```
+
+### توصیه مهم
+
+Backup نرم‌افزار را تنها نسخه پشتیبان خود در نظر نگیرید.
+
+برای سرور واقعی، علاوه بر Backup داخلی TAS، از خود فایل دیتابیس و سرور نیز نسخه پشتیبان دوره‌ای تهیه کنید.
+
+برای مثال:
+
+```text
+backend/data/accounting.db
+```
+
+را در یک محل امن و جداگانه Backup کنید.
+
+---
+
+# استقرار روی سرور
+
+برای یک سرور داخلی یا VPS می‌توان TAS را به شکل زیر اجرا کرد:
+
+```bash
+npm run install:all
+npm run build
+npm run start
+```
+
+سپس برنامه روی:
+
+```text
+http://SERVER-IP:4000
+```
+
+قابل دسترسی خواهد بود.
+
+برای استقرار حرفه‌ای پیشنهاد می‌شود:
+
+```text
+Internet
+    │
+    ▼
+Nginx / Caddy
+    │
+    │ HTTPS
+    ▼
+TAS / Express
+    │
+    ▼
+SQLite
+```
+
+در چنین حالتی:
+
+- HTTPS را روی Reverse Proxy فعال کنید.
+- `NODE_ENV=production` تنظیم کنید.
+- `JWT_SECRET` قوی تعیین کنید.
+- `CORS_ORIGIN` را فقط به دامنه‌های مجاز محدود کنید.
+- دسترسی مستقیم اینترنتی به فایل دیتابیس را مسدود کنید.
+- Backup دوره‌ای و خارج از سرور داشته باشید.
+
+---
+
+# اجرای دائمی در Linux با PM2
+
+برای اجرای دائمی Backend می‌توانید از PM2 استفاده کنید:
 
 ```bash
 npm install -g pm2
-pm2 start backend/server.js --name accounting-app
+```
+
+سپس از ریشه پروژه:
+
+```bash
+pm2 start backend/server.js --name tas
 pm2 save
 ```
 
-Put Nginx or Caddy in front of it as a reverse proxy if you want HTTPS on a domain name.
-
-## Resetting the sample data
-
-Delete `backend/data/accounting.db` and restart the server — it will re-seed automatically. Or run `npm run seed` after deletion.
-
-## Operational deployment notes
-
-1. **Auth** — login is enabled; JWT is stored only in an HttpOnly cookie. For public deployment, put the server behind HTTPS and set `NODE_ENV=production`.
-2. **Jalali dates** — the existing date picker remains the UI layer; financial period/date validation is enforced server-side using the stored date strings.
-3. **سامانه مودیان integration** — build as its own backend module with a queued/retry job (don't block invoice creation on a live call to the tax authority API), following the design discussed earlier in this conversation. The current مودیان page is a manual status-tracking CRUD table, not a live integration.
-4. **Self-host the Farsi font** — swap the Google Fonts `<link>` in `frontend/index.html` for a locally hosted Vazirmatn file, since external font CDNs can be unreliable from inside Iran.
-5. **Swap SQLite for PostgreSQL** if you expect concurrent multi-user write load — the schema in `backend/schema.sql` translates directly (see the accounting/inventory schema designed earlier in this conversation, including the `pg_trgm` search index).
-6. **Double-entry ledger** — operational accounting now uses `journal_vouchers` and `journal_voucher_lines`; the legacy `journal_entries` table is retained only for backward compatibility.
-
-## Project structure
-
-```
-accounting-app/
-  backend/
-    server.js          # Express app entry point
-    db.js               # SQLite connection, schema init, auto-seed
-    schema.sql           # table definitions
-    routes/
-      dashboard.js        # KPIs, sales trend, events, low stock, cheques
-      inventory.js         # 3-level tree + ID/code/name search
-    lib/persian.js        # Persian text normalization for search
-  frontend/
-    src/
-      layout/            # Sidebar (grouped menu) + AppLayout
-      pages/
-        Dashboard.jsx       # home page
-        Inventory.jsx        # warehouse module (tree + search)
-        Placeholder.jsx       # stand-in for unbuilt modules
-      lib/
-        api.js              # fetch wrapper for the backend
-        persian.js            # Persian digit/currency formatting
-```
-
-## طرف‌های حساب (Parties: customers & suppliers)
-
-New master-data page (sidebar, next to تنظیمات اولیه): define customers/suppliers once — name, type, phone, economic code — then reuse them everywhere instead of retyping. On the خرید و فروش invoice form (and on دریافت و پرداخت / مدیریت چک), the party field is now a search box: type to filter existing parties, pick one, or hit **"+ تعریف طرف حساب جدید"** to create one inline without leaving the form — the same pattern as the inventory item picker. The list itself has full add/edit/delete like every other module.
-
-## Bank account creation bug fix
-
-An earlier build could silently fail to add a bank account: the form had no error handling, so if a save failed for any reason, the modal just sat there — no error, no account added, no clue why. That's fixed (errors now surface inline in the form), and the initial-balance field is no longer strictly required (left blank, it now safely defaults to 0).
-
-## Party list not updating, no duplicate detection, no permanent code — fixed
-
-Three related fixes:
-
-1. **Systemic silent-failure bug**: `CrudModule` (used by 7 of the modules — including طرف‌های حساب, مدیریت چک, تنخواه‌گردان, etc.) had no error handling around save/delete. If a save failed for any reason, the form just sat there with nothing visibly wrong — no error, no new row, no clue why. Every module using it now shows the real error inline.
-2. **Stale list data**: the fetch client didn't disable HTTP caching, so a GET could in principle be served from cache instead of hitting the server for fresh data. All API requests now send `cache: "no-store"`.
-3. **Unique, never-reused party codes + duplicate detection**: each party now gets a permanent code like `P-0001`, derived directly from its database id. Because SQLite's `AUTOINCREMENT` guarantees an id is never reused even after the row is deleted, this code is guaranteed unique for the life of the database — deleting P-0003 will never result in a future party also being P-0003. Creating (or renaming, via edit) a party to a name that already exists is now rejected with a clear error message naming the existing party's code, instead of silently allowing duplicates.
-
-## Troubleshooting: "ECONNREFUSED" / "http proxy error" on every /api request
-
-This means the **frontend is running but the backend isn't** — Vite is trying to proxy `/api/...` to `http://localhost:4000` and finding nothing listening there. It's not a bug in a specific feature; the whole backend process either never started or crashed immediately. To see the real reason:
+و برای مشاهده وضعیت:
 
 ```bash
-cd backend
+pm2 status
+```
+
+برای مشاهده لاگ:
+
+```bash
+pm2 logs tas
+```
+
+---
+
+# پورت‌های پیش‌فرض
+
+| سرویس | پورت |
+|---|---:|
+| Frontend / Vite در Development | `5173` |
+| Backend / Express | `4000` |
+
+برای تغییر پورت Backend:
+
+```bash
+PORT=4001 npm run start
+```
+
+در ویندوز PowerShell:
+
+```powershell
+$env:PORT="4001"
+npm run start
+```
+
+اگر Backend را روی پورت متفاوتی اجرا می‌کنید، Proxy مربوط به Vite نیز باید متناسب با آن تنظیم شود.
+
+---
+
+# امنیت
+
+برخی کنترل‌های امنیتی موجود در TAS:
+
+- احراز هویت مبتنی بر JWT
+- نگهداری Session در Cookie با ویژگی `HttpOnly`
+- کنترل نقش‌ها در Backend
+- محدودسازی CORS
+- محدودسازی تعداد تلاش‌های ورود
+- جلوگیری از عملیات نوشتاری برای نقش مشاهده‌گر
+- ثبت Audit Log برای عملیات تغییردهنده
+- محدودیت اندازه JSON Request
+- حذف/عدم ثبت برخی مقادیر حساس در Audit Log
+
+با این حال، امنیت یک سامانه Production فقط به کد برنامه محدود نیست و به موارد زیر نیز وابسته است:
+
+- HTTPS
+- تنظیم صحیح Reverse Proxy
+- Firewall
+- مدیریت رمزها
+- Backup
+- به‌روزرسانی Node.js و وابستگی‌ها
+- دسترسی فایل‌های سرور
+- سیاست‌های دسترسی کاربران
+
+---
+
+# PWA
+
+Frontend با قابلیت‌های PWA ساخته شده است.
+
+در مرورگرهای سازگار می‌توان برنامه را به‌صورت یک برنامه مستقل روی سیستم نصب کرد.
+
+PWA باعث می‌شود رابط کاربری تجربه‌ای شبیه نرم‌افزار دسکتاپ داشته باشد؛ با این حال API و دیتای اصلی همچنان روی Backend قرار دارد.
+
+---
+
+# توسعه TAS
+
+برای توسعه Frontend:
+
+```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-Run it directly like this (not through the root `npm run dev`, which interleaves backend/frontend logs and can bury the actual error). You should see:
-
-```
-✅ Accounting backend running on http://localhost:4000
-```
-
-If instead it prints an error and exits, the two most common causes, in order of likelihood:
-
-1. **`better-sqlite3`'s native module didn't build/install correctly** for your OS/Node version — by far the most common cause of "backend won't start" for this stack. The backend now prints a clear message with exact recovery steps if this happens (reinstall, `npm rebuild better-sqlite3`, or install platform build tools). Node 18 or 20 (LTS) is recommended; very new/unreleased Node versions sometimes don't have prebuilt binaries yet, forcing a from-source compile that needs a C++ toolchain installed.
-2. **Port 4000 is already in use** by something else on your machine. The backend now detects this specifically and tells you so, with the option to run on a different port via `PORT=4001 npm run start` (remember to also update the proxy target in `frontend/vite.config.js` if you do).
-
-Once `cd backend && npm run dev` shows the ✅ line and stays running, go back to the project root and use `npm run dev` as usual.
-
-## Troubleshooting: "SqliteError: attempt to write a readonly database"
-
-This is a filesystem permissions issue, not an app bug — it means SQLite can't write to `backend/data/accounting.db` or its folder. The backend now detects this specifically and prints these steps directly, but in short:
+برای توسعه Backend:
 
 ```bash
 cd backend
-ls -ld data                 # check the folder's owner/permissions
-chmod -R u+w data           # fix permissions, or:
-rm -rf data && npm run dev  # start completely fresh
+npm install
+npm run dev
 ```
 
-If that still doesn't help, confirm the project folder itself isn't on a read-only or network-mounted drive (e.g. an NTFS/exFAT drive mounted read-only by default):
+یا هر دو را از ریشه پروژه اجرا کنید:
 
 ```bash
-touch backend/data/test-write && echo writable || echo "NOT writable"
+npm run dev
 ```
 
-If it prints "NOT writable", move the whole project folder to somewhere on your normal home-directory filesystem (e.g. `~/projects/accounting-app`) and run it from there.
+### Build Frontend
 
-## Logo, warehouse/category management, Jalali dates, Rial formatting, server health, and backup/wipe
+```bash
+npm run build
+```
 
-A large batch of additions:
+### آماده‌سازی دیتابیس نمونه
 
-- **Logo**: the uploaded dice logo is now the sidebar header icon and the browser favicon.
-- **Inventory categories & subcategories**: انبارداری now has full add/edit/delete for groups (سطح ۱), subgroups (سطح ۲), and items (سطح ۳) directly in the page — not just browsing.
-- **Multiple warehouses**: a proper warehouses list (add/edit/delete) with "انبار مرکزی" seeded as the default; every inventory item now picks its warehouse from this list instead of free text. At least one warehouse must always remain (the last one can't be deleted).
-- **Jalali (Shamsi) date picker**: every date field across the app (invoice date, cheque due date, petty cash, FX entries, production orders, مودیان submissions, receipts/payments) is now a calendar-only picker — typing digits or text directly is disabled, removing an entire class of malformed-date input errors.
-- **Rial currency formatting**: every amount field now uses a grouped-digit input (e.g. "1,250,000") that displays and stores the value in ریال, and all currency displays app-wide were switched from تومان to ریال to match. This is a real unit change, not just a label swap — keep that in mind if you're mentally converting from an earlier version that showed تومان.
-- **Sales invoices restricted to in-stock items**: as requested, a فروش invoice can only select items with `qty_on_hand > 0` and cannot create new items inline (خرید invoices can still do both — search the full catalog and quick-add new items).
-- **Stock now actually moves**: creating/editing/deleting a sale or purchase invoice adjusts `qty_on_hand` on the referenced inventory items (sale decreases it, purchase increases it), with the same reverse-then-reapply correctness pattern used for bank balances. Sales are blocked with a clear error if requested quantity exceeds current stock.
-- **Dashboard: server health + recent errors**: two new panels poll every 3 seconds — CPU/RAM usage of the machine the app is running on (via Node's `os` module), and the last 3 errors captured from the backend console (any `console.error` call anywhere in the app is intercepted and logged in-memory, so this reflects real runtime problems, not a curated list).
-- **تنظیمات اولیه: backup, restore, and full data wipe**:
-  - **Backup**: downloads a single `.xlsx` file with one sheet per database table — a complete snapshot, not just financial data.
-  - **Restore**: uploading a previously-exported `.xlsx` wipes the current database and reloads it from the file, preserving original ids/relationships. This is a full replace, not a merge — the UI makes that explicit before you confirm.
-  - **Wipe financial data**: a separate, narrower destructive action (typed confirmation required) that clears invoices, journal entries, receipts/payments, cheques, petty cash, FX entries, production orders, مودیان submissions, inventory categories/items, and parties — while preserving company info, bank accounts (balances reset to their initial value), and warehouses, since those are setup rather than transactional history.
+```bash
+npm run seed
+```
 
-A couple of honest caveats on the newer pieces: CPU usage is measured as an instantaneous delta sample (not a smoothed average), and the Excel restore assumes the file was produced by this app's own export (it doesn't attempt to validate or repair an arbitrary spreadsheet).
+> `seed` برای آماده‌سازی/اطمینان از دیتابیس توسعه استفاده می‌شود. قبل از اجرای هر عملیات مخرب روی دیتابیس واقعی، Backup تهیه کنید.
 
-## Fixed: "Failed to resolve import react-multi-date-picker/dist/styles.css" crash
+---
 
-This project didn't ship a `package-lock.json`, so every `npm install` re-resolves dependency versions against whatever's currently newest — and in at least one real case this caused Vite itself to install as v8 despite the `^5.4.2` range in `package.json`, alongside the date-picker library's CSS file moving/disappearing at whatever newer version got pulled in.
+# نکات مهم برای توسعه‌دهندگان
 
-Two changes:
+### Backend
 
-1. Removed the fragile `import "react-multi-date-picker/dist/styles.css"` entirely and replaced it with a small hand-written stylesheet (in `frontend/src/index.css`) targeting the library's own stable class names — so the calendar looks correct and the app no longer depends on a specific file existing inside a third-party package's `dist` folder.
-2. **Pinned exact versions** (no `^` ranges) for every dependency in both `backend/package.json` and `frontend/package.json`, so `npm install` can no longer silently drift to an incompatible major version.
+منطق سرور در این بخش‌ها سازمان‌دهی شده است:
 
-If you're upgrading from an earlier copy: delete `node_modules` (and any `package-lock.json`) in both `backend/` and `frontend/`, then run `npm run install:all` again from the project root.
+```text
+backend/routes/
+backend/lib/
+```
 
-## کدینگ حسابداری (Chart of Accounts) and manual journal vouchers
+Routeها APIهای هر ماژول را ارائه می‌کنند و فایل‌های `lib` منطق مشترک مانند حسابداری، احراز هویت، جست‌وجوی فارسی و دفتر موجودی را در خود دارند.
 
-From the standard Iranian chart-of-accounts file you provided (which contained three template variants — خدماتی, تولیدی, and بازرگانی), the software is now seeded with the **بازرگانی (commercial/general trading)** version: 8 fixed گروه اصلی (level 1), 45 گروه کل (level 2), and 180 حساب معین (level 3). If you'd rather start from تولیدی or خدماتی instead, let me know and I can re-seed from either — swapping now, before you've customized anything, is easy.
+### Frontend
 
-- **کدینگ حسابداری** (new sidebar page, under a new "حسابداری" group): a tree browser exactly like انبارداری's — drill into a گروه اصلی → گروه کل → حساب معین, with a search box matching by code, id, or name.
-  - **گروه اصلی (level 1) is fixed** — it's the standard financial-statement classification (دارایی جاری, بدهی بلندمدت, درآمدها, etc.) and isn't meant to change, so there's no add/edit/delete there, only navigation.
-  - **گروه کل and حساب معین (levels 2–3) are fully yours** — add, rename, or delete freely. New codes are generated automatically (e.g. a new حساب معین under گروه ۱۱ becomes `1104`), and deleting a گروه کل is blocked while it still has حساب‌های معین under it.
-- **اسناد حسابداری** (new page, same group): manual double-entry journal vouchers. Each سند has a date, a description, and at least two ردیف — every ردیف picks a حساب معین (search by code or name) and enters either بدهکار or بستانکار (never both). The form shows a live running total and won't let you save until debit and credit are equal — this is enforced both in the UI (submit button disabled) and on the server (so it can't be bypassed by calling the API directly).
+صفحات اصلی در:
 
-This is intentionally a simpler, single-currency manual voucher system — it does not yet auto-generate journal vouchers from invoices/cheques/etc. (that would mean picking a specific account for every transaction type, which is a bigger design decision better made once you've seen how the coding fits your actual workflow).
+```text
+frontend/src/pages/
+```
 
-## Major addition: authentication, real GL posting, financial statements, and PWA
+و اجزای مشترک در:
 
-This is a large batch — the app now has actual security, actual double-entry accounting driving real financial statements, and is installable as a standalone app.
+```text
+frontend/src/components/
+```
 
-### Authentication & roles
-There is now a real login. **On first run, a default admin account is created with a random password printed once to the backend console** — note it down, log in, and change it (or create your own admin and delete the default) from **کاربران و دسترسی** (admin-only, in the sidebar).
+و Layout اصلی در:
 
-Three roles:
-- **مدیر سیستم (admin)** — full access, plus تنظیمات اولیه, کاربران و دسترسی, and backup/restore/wipe (all admin-only, enforced by the backend, not just hidden in the UI).
-- **حسابدار (accountant)** — full read/write on day-to-day modules.
-- **مشاهده‌گر (viewer)** — read-only. This is enforced server-side (any POST/PUT/DELETE from a viewer token is rejected with 403), not just a UI restriction.
+```text
+frontend/src/layout/
+```
 
-### Real double-entry GL posting from invoices
-New **اتصال حسابداری** section in تنظیمات اولیه (admin only): pick your default حساب فروش, حساب بهای تمام‌شده, حساب موجودی کالا, حساب دریافتنی, and حساب پرداختنی from your کدینگ حسابداری. Each bank account (also in تنظیمات اولیه) can now link to a specific حساب معین too.
+قرار دارند.
 
-Once that's set up, every sales/purchase invoice **automatically creates a real journal voucher** — actual debit/credit lines against your chart of accounts, not just a bank-balance update. These auto-generated vouchers are locked from direct editing in اسناد حسابداری (you'll get a clear message pointing you back to the source invoice) so the subledger and GL can't drift apart.
+---
 
-If the mapping isn't (fully) configured, invoices still save exactly as before — GL posting is additive, never a hard requirement — and the response includes a warning explaining what's missing.
+# وضعیت پروژه
 
-### Weighted-average inventory costing
-Purchases now blend into a real moving-average unit cost per item; sales consume that cost to post a real COGS entry. **Known, deliberate limitation**: editing a historical purchase invoice does not retroactively recompute cost blends that already happened from it — this is a genuine limitation of moving-average costing in general (not specific to this app), so if you need to correct a purchase shortly after entering it, deleting and recreating it is more reliable than editing it.
+TAS با هدف تبدیل شدن به یک پلتفرم حسابداری/ERP فارسی و قابل توسعه ساخته شده است.
 
-### Financial statements (گزارش‌گیری)
-Three new tabs, computed from real ledger data (once GL posting is active):
-- **تراز آزمایشی** (Trial Balance) — every account with activity, its debit/credit totals, and balance.
-- **صورت سود و زیان** (Income Statement) — revenue minus expenses.
-- **ترازنامه** (Balance Sheet) — assets vs. liabilities + equity (current-period net income folds into equity so it balances without a separate period-close step).
+برخی حوزه‌هایی که می‌توانند در ادامه توسعه داده شوند:
 
-Also fixed a real, previously-silent bug: the Reports summary endpoint had been querying a database column (`amount`) that no longer existed after invoices gained line items — it's been broken since that change and is now fixed.
+- تکمیل و تعمیق اتصال سامانه مودیان
+- توسعه بیشتر گزارش‌های مدیریتی و تحلیلی
+- گردش‌کارهای پیشرفته حسابداری
+- تفصیلی‌های شناور و ابعاد مالی
+- مغایرت‌گیری بانکی
+- کنترل‌های پیشرفته بستن دوره
+- تست‌های جامع واحد، یکپارچه و End-to-End
+- پشتیبانی بهتر از استقرارهای چندکاربره و بار بالا
+- مهاجرت اختیاری به PostgreSQL برای نصب‌های بزرگ
+- اپلیکیشن موبایل یا کلاینت‌های دیگر بر پایه API
 
-### PWA (installable, standalone)
-The app now has a real manifest and service worker (via `vite-plugin-pwa`) — your browser will offer to install it, and it opens in its own window (`display: standalone`), no browser chrome. The app shell (JS/CSS/fonts/icons) is cached for fast/offline loading, but **`/api` is deliberately never cached** — offline means the app opens, not that you can see or change data without a connection to your own backend, which matters for an accounting tool.
+---
 
-### Other additions in this batch
-- Cheques gained شناسه صیاد and واگذار شده به (endorsement) fields.
+# عیب‌یابی سریع
 
-### What's still not built
-Real سامانه مودیان cryptographic signing (needs real INTA credentials), BOM/manufacturing costing, floating تفصیلی dimensions beyond parties/bank accounts, a bank reconciliation wizard, and a custom-fields engine remain out of scope for now.
+## Frontend باز نمی‌شود
 
-## Major fixes and additions: login bug, dark mode, currency, مودیان reminders, debug logging, and full manufacturing
-
-### Critical bug fixes
-- **Login bouncing back to the login screen** — a real race condition: the JWT was written to `localStorage` inside a `useEffect`, but React fires a *child* component's effects before its *parent's*. Dashboard/Sidebar's data-fetching effects (children of `AuthProvider`) ran and called the API before the token was actually persisted, those first requests went out with no `Authorization` header, got 401, and the 401 handler logged the user right back out. Fixed by making the token available synchronously the instant `login()` runs.
-- **Dark mode text contrast** — two real bugs: the Jalali date picker's calendar popup never got an explicit text color (we intentionally don't import the library's bundled CSS — see the earlier fix for why — so it silently fell back to black-on-dark-surface), and two destructive buttons (wipe data / confirm restore) used a color that turns bright in dark mode, losing contrast against their white text. Both fixed; also fixed a **generic bug in the reusable form component**: optional dropdown fields could never be reset back to "unset" once you picked something, because the placeholder option was always `disabled`. That's now correctly conditional on whether the field is actually required.
-- **Reports summary endpoint was silently broken** (from an earlier session) — fixed as part of this pass too.
-
-### طرف حساب: حقیقی / حقوقی + یادآوری سامانه مودیان
-Parties now have an optional "نوع شخص" (حقیقی/حقوقی). Saving a **sale to a حقیقی party** or a **purchase from a حقوقی party** automatically creates a dismissible reminder on the dashboard — since this app doesn't submit to سامانه مودیان directly, this is a nudge to go check/register it there yourself. Tick the checkbox once you've handled it and it's gone. Editing or deleting the invoice keeps the reminder in sync. Note: since parties are linked to invoices by name (not id — a known simplification documented earlier), this only works when the invoice's party name matches an actual party record; a free-typed name with no matching party can't be checked.
-
-### Live exchange rates
-USD/EUR/CNY→Rial rates refresh every 30 minutes in the background and show on the dashboard. Pick a "ارز ترجیحی" in Settings → company info, and item search results (in انبارداری and on invoices) show the converted price alongside the Rial figure. **Please verify this works on your machine** — it was built and packaged in a sandbox with no network access, so the live API call couldn't be tested end-to-end. The source URL is one constant (`EXCHANGE_RATE_API_URL` env var or the default in `backend/lib/exchangeRates.js`) if you need to swap it.
-
-### Rolling debug log
-Every `console.log`/`console.error` in the backend now also writes to `backend/data/debug.log`, capped at the last 1000 lines (oldest dropped as new ones come in), surviving restarts. This is a raw troubleshooting file only — never shown in the UI. The dashboard's existing "recent errors" panel remains the user-facing summary of anything serious. **Note**: the one-time admin password shown on first run also gets written to this file, same as it appears in your terminal scrollback — if that's a concern, clear `debug.log` after your first login.
-
-### Manufacturing: فرمول تولید, فرایند تولید, کالا در گردش
-Three new modules, replacing the old placeholder "مدیریت تولید" (still reachable, data preserved, just no longer linked in the sidebar):
-
-- **فرمول تولید** (BOM) — define a formula (e.g. "هواپیما مدل ۳۲") naming an output product, a list of required components with quantities, and optional named services (مونتاژ, برش‌کاری, ...). No prices are stored here, by design — only structure.
-- **فرایند تولید** — pick a formula and a quantity to produce; you'll be prompted for **today's price** for every component (prefilled from its current average cost, editable) and **today's cost** for every service (always blank — services have no stored price). Stock is checked before anything happens; if sufficient, components are deducted, the output product is added to inventory at a real computed cost (blended into its existing weighted-average cost, same mechanism as purchase invoices), and the whole run is recorded for history. **Known limitation, same as elsewhere**: a run can be deleted (which reverses quantities) but not edited, and deleting doesn't retroactively un-blend the cost it caused — moving-average costing genuinely can't be cleanly reversed after the fact.
-- **کالا در گردش** — free-form stock in/out for anything that doesn't fit a formula (partial/staged production, ad-hoc consumption) or for tracking کالای امانی (consignment/loaned goods) leaving or returning. A description is mandatory since there's no structured "reason" otherwise.
-
-None of the three currently post to the General Ledger automatically (only sales/purchase invoices do that today) — extending GL auto-posting to production is a reasonable next step if you want inventory-driven manufacturing costs to flow into your financial statements automatically.
-
-## Fixed: dashboard showing stale data after wiping financial data
-
-This turned out to be two separate real bugs, not a caching issue:
-
-1. **The dashboard's KPI cards, sales chart, and "recent events" feed were mockup placeholders that never got wired to real data.** They read from three static tables (`kpis`, `sales_daily`, `events`) that were seeded once, very early in this project, with fake demo numbers — and nothing in the codebase ever updated them afterward, wipe or no wipe. These three widgets now compute live from real data instead:
-   - KPIs: today's real sales (from `sales_purchase_invoices`), receivables/payables (from the actual GL balance of whichever accounts you've mapped in اتصال حسابداری), and real cash+bank total.
-   - Sales chart: real daily sales sums for the selected range, zero-filled so the timeline stays continuous even on days with no sales.
-   - Recent events: a live merge of your most recent invoices, cheques, vouchers, receipts/payments, and production runs, sorted by actual creation time.
-   The three now-unused tables were removed from the schema.
-
-2. **"پاک‌سازی اطلاعات مالی" never actually cleared اسناد حسابداری, کدینگ حسابداری (سطح ۲/۳), or the production system.** Its table list was written before journal vouchers, chart of accounts, and manufacturing existed, and was never updated as those got built — so Trial Balance / Balance Sheet / Income Statement (which all read from real ledger data) would keep showing old numbers even after a "wipe." Fixed: the wipe now also clears journal vouchers/lines, level-2/3 chart-of-accounts entries (level 1 stays, since it's a fixed classification), and the full production history (formulas, runs, stock adjustments). Company info, bank accounts, warehouses, اتصال حسابداری, and users are still preserved, as intended.
-
-Also, both **wipe** and **restore-from-backup** now automatically reload the page a moment after finishing, instead of leaving you to notice stale data and manually refresh — this directly addresses "doesn't update automatically."
-
-If you're upgrading from an earlier copy: delete `backend/data/accounting.db` before running, since the schema changed again (new `created_at` columns for a real activity feed, removed the three placeholder tables).
-
-## Fixed: date picker not closing, category creation missing, layout overflow
-
-Three real bugs from this round:
-
-1. **Date picker popup wouldn't close after selecting a date.** The library (`react-multi-date-picker`) expects its controlled `value` to be a real `DateObject` (carrying calendar/locale info), but it was being fed a plain string. Without that, the library could never recognize "the value now matches what was just clicked," so it kept the popup open. Fixed by converting the stored string to a proper `DateObject` before passing it back in.
-
-2. **Category selection in "تعریف کالای جدید در فاکتور" couldn't create a new category.** Added a "+" button next to the دسته‌بندی dropdown that opens a small form to create a new subgroup — either under an existing گروه اصلی or a brand-new one — and immediately selects it, without leaving the invoice form.
-
-3. **"حداقل موجودی" (and other fields) overflowing their containers.** A structural CSS bug, not specific to one field: number/text inputs were missing `width`/`min-width` in their shared style object, and flex-row layouts default to a `min-width` that prevents children from shrinking properly — so when two fields shared a row, one could overflow instead of resizing to fit. Fixed everywhere this pattern appears (14 files use the same shared input style).
-
-**Bonus fix found while testing the above**: opening "دسته‌بندی جدید" (or "طرف حساب جدید") from inside another already-open form, then clicking its backdrop to dismiss it, was accidentally closing *both* modals — the click was bubbling up to the parent modal's own backdrop handler. Fixed by stopping that propagation, for both the new category-creation modal and the existing quick-add-item/quick-add-party modals (the latter had this same bug already, just not yet reported).
-
-## Date picker still not closing — real fix this time
-
-The previous fix (feeding it a proper `DateObject` instead of a plain string) was necessary but not sufficient. This turns out to be a widely-reported issue with `react-multi-date-picker` specifically — relying on its automatic close-on-select behavior isn't reliable, and the library's own maintainers document the actual fix: grab a `ref` to the picker and explicitly call `.closeCalendar()` yourself inside `onChange`, rather than trusting it to close on its own. That's what `JalaliDatePicker.jsx` now does. Also memoized the `DateObject` construction so a new one isn't created on every render (which was giving the library a new reference each time even when the date hadn't actually changed).
-
-## Date picker still not closing — the actual root cause, finally
-
-Two earlier attempts (proper `DateObject` value, then explicit `ref.closeCalendar()`) were reasonable but treated symptoms, not the cause. The real issue traces back further: when a dependency-drift crash forced removing `react-multi-date-picker`'s own stylesheet import (see the "Failed to resolve import ... styles.css" fix earlier in this document), it was replaced with a small hand-written CSS block covering *colors only*, for dark-mode readability. But that stylesheet isn't just colors — the library also relies on it for the calendar's positioning/visibility mechanics. Without it, the popup's own "hide yourself when closed" behavior never had the CSS it needed, regardless of what our `onChange`/`ref` logic did on the JS side.
-
-Now that exact dependency versions are pinned (a fix made specifically to prevent the drift that caused the original crash), it's safe to bring the stylesheet import back — loaded *before* our own `index.css`, so our dark-mode color overrides still take precedence for anything they specifically target, while everything else (positioning, open/close mechanics) comes from the library's own, correct CSS.
-
-If you still see this after refreshing, it likely means your installed `node_modules` predates the version pin — run `npm install` in `frontend/` again to be sure you're on the exact pinned version.
-
-## نسخه نهایی — 2.0.0
-
-این نسخه شامل سخت‌سازی‌های زیر است:
-
-- محاسبه مجدد موجودی و میانگین موزون بر اساس گردش‌های تاریخی خرید، فروش، تعدیل و تولید.
-- ثبت Inventory Ledger قابل حسابرسی برای هر کالا.
-- جلوگیری از ویرایش مستقیم `qty_on_hand` پس از ایجاد کالا.
-- جلوگیری از حذف کالایی که گردش انبار دارد.
-- اعتبارسنجی دقیق مقدار/قیمت ردیف‌های فاکتور و جلوگیری از مقادیر منفی.
-- تراز اسناد حسابداری با دقت بسیار بالاتر کنترل می‌شود.
-- ثبت Audit Log برای عملیات تغییردهنده API.
-- دوره‌های مالی، جلوگیری از ثبت در دوره بسته و سند اختتامیه.
-- rate limit برای ورود.
-- CORS محدود به originهای مشخص از طریق `CORS_ORIGIN`.
-- JWT فقط در HttpOnly Cookie نگهداری می‌شود و frontend توکن را در localStorage ذخیره نمی‌کند.
-- Migration خودکار برای دیتابیس‌های قدیمی و ایجاد ساختارهای جدید حسابداری.
-
-### اجرای نسخه اصلاح‌شده
+ابتدا بررسی کنید:
 
 ```bash
 npm run install:all
+```
+
+سپس:
+
+```bash
 npm run dev
 ```
 
-برای deployment عمومی، مقدار `CORS_ORIGIN` را به origin واقعی frontend تنظیم کنید و `NODE_ENV=production` قرار دهید تا cookie با `Secure` ارسال شود.
+و مطمئن شوید پورت `5173` اشغال نباشد.
 
-> توجه: تست کامل browser/e2e و نصب dependencyهای native مانند `better-sqlite3` باید در محیط توسعه مقصد انجام شود؛ محیط ساخت این بسته دسترسی شبکه لازم برای نصب npm را نداشت. syntax تمام فایل‌های JavaScript backend در زمان ساخت با `node --check` بررسی شده است.
+---
 
+## Backend اجرا نمی‌شود
 
-## Accounting controls in 2.0.0
+نسخه Node.js را بررسی کنید:
 
-- سندهای خودکار همهٔ عملیات مالی از طریق `journal_vouchers` و `journal_voucher_lines` ثبت می‌شوند و هر سند باید دقیقاً تراز باشد.
-- فاکتور خرید/فروش از تخفیف، مالیات و برگشت پشتیبانی می‌کند.
-- موجودی از `inventory_ledger` بازسازی می‌شود و بهای تمام‌شده فروش پس از تغییرات تاریخی دوباره محاسبه و در سندهای خودکار فروش اصلاح می‌شود.
-- دریافت/پرداخت، چک، تنخواه، تعدیل و تولید دارای سند حسابداری منبع‌دار هستند.
-- دوره‌های مالی قابل تعریف و بسته‌شدن هستند و ثبت جدید در دوره بسته مسدود می‌شود.
-- Restore ابتدا یک snapshot از دیتابیس ایجاد می‌کند و فایل پشتیبان قبلی را نگه می‌دارد.
-- JWT فقط در Cookie با `HttpOnly` نگهداری می‌شود؛ frontend دیگر توکن را در `localStorage` ذخیره نمی‌کند.
-- برای هر حساب بانکی، در صورت عدم انتخاب حساب کدینگ دستی، یک حساب معین مستقل به‌صورت خودکار ساخته می‌شود.
+```bash
+node --version
+```
+
+سپس:
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+اگر خطای پورت دریافت کردید، پورت دیگری تعیین کنید:
+
+```bash
+PORT=4001 npm run start
+```
+
+---
+
+## مشکل وابستگی‌ها
+
+اگر پس از دریافت نسخه جدید پروژه با خطای وابستگی مواجه شدید، ابتدا نصب‌های قبلی را حذف و دوباره نصب کنید.
+
+Linux/macOS:
+
+```bash
+rm -rf backend/node_modules frontend/node_modules
+npm run install:all
+```
+
+PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force backend/node_modules
+Remove-Item -Recurse -Force frontend/node_modules
+npm run install:all
+```
+
+در صورت وجود `package-lock.json` معتبر، بهتر است از:
+
+```bash
+npm ci
+```
+
+استفاده شود.
+
+---
+
+# مشارکت
+
+مشارکت در توسعه TAS استقبال می‌شود.
+
+برای پیشنهاد قابلیت جدید:
+
+1. ابتدا یک Issue ایجاد کنید.
+2. مسئله و کاربرد آن را توضیح دهید.
+3. در صورت امکان راه‌حل پیشنهادی و نمونه استفاده ارائه کنید.
+4. سپس Pull Request ارسال کنید.
+
+برای تغییرات بزرگ بهتر است ابتدا درباره معماری و مدل داده در یک Issue یا Discussion توافق شود.
+
+---
+
+# مجوز
+
+این بخش باید مطابق مجوز نهایی پروژه تکمیل شود.
+
+اگر قصد انتشار عمومی TAS به‌عنوان یک پروژه Open Source را دارید، پیشنهاد می‌شود یک فایل مجوز مشخص مانند:
+
+```text
+LICENSE
+```
+
+به Repository اضافه شود و نوع مجوز در همین README به‌صورت صریح اعلام گردد.
+
+---
+
+## TAS
+
+**TAS — Persian Accounting & Financial Management System**
+
+یک هسته فارسی، RTL، وب‌محور و قابل توسعه برای حسابداری، خزانه، انبار، خرید و فروش، تولید و مدیریت مالی.
+
+ساخته شده با:
+
+```text
+React
+Node.js
+Express
+SQLite
+Vite
+```
